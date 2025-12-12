@@ -1,0 +1,19 @@
+Flask
+requests
+python-dotenv
+APScheduler
+
+# Crypto/verification (pure-Python)
+ed25519
+
+# Official Google Generative AI client
+google-generativeai
+
+# Gateway bot and voice
+discord.py[voice]==2.6.4
+discord-ext-voice-recv
+PyNaCl
+SpeechRecognition
+gTTS
+aiohttp
+groq
