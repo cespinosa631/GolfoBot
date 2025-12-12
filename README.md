@@ -58,7 +58,6 @@ GolfoBot requires **TWO** processes to run:
 
 ```bash
 conda activate tensor
-cd /Users/cristianespinosa/Documents/Discord_Bots/GolfoStreams
 ```
 
 **2. Start the Flask server (REQUIRED):**
