@@ -1,0 +1,8 @@
+[phases.setup]
+aptPkgs = ["libopus0", "libopus-dev", "ffmpeg"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "python server.py"
