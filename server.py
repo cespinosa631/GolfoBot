@@ -1259,53 +1259,62 @@ def dev_simulate_message():
     
     Guarded by ALLOW_DEV_ENDPOINTS env var.
     """
-    if os.environ.get('ALLOW_DEV_ENDPOINTS', '').lower() not in ('1', 'true', 'yes'):
-        return jsonify({"error": "Dev endpoints disabled"}), 403
-    
-    body = request.json or {}
-    content = body.get('content', 'GolfoBot, arma los equipos 2v2')
-    username = body.get('username', 'TestUser')
-    user_id = body.get('user_id', '123456789')
-    guild_id = body.get('guild_id', DISCORD_CHANNEL_ID)
-    channel_id = body.get('channel_id', TEST_CHANNEL_ID or DISCORD_CHANNEL_ID)
-    mentions = body.get('mentions', [])
-    
-    logger.info(f"[DEV] Simulating message: '{content}' from {username}")
-    
-    # Build a minimal Discord MESSAGE_CREATE event
-    event_data = {
-        "t": "MESSAGE_CREATE",
-        "d": {
-            "id": "sim_msg_id",
-            "content": content,
-            "author": {
-                "id": user_id,
-                "username": username,
-                "global_name": username,
-                "bot": False
-            },
-            "guild_id": guild_id,
-            "channel_id": channel_id,
-            "mentions": mentions,
-            "type": 0
+    try:
+        logger.info(f"[DEV] /dev/simulate_message endpoint called")
+        
+        if os.environ.get('ALLOW_DEV_ENDPOINTS', '').lower() not in ('1', 'true', 'yes'):
+            logger.warning("[DEV] Dev endpoints disabled - rejecting request")
+            return jsonify({"error": "Dev endpoints disabled"}), 403
+        
+        body = request.json or {}
+        content = body.get('content', 'GolfoBot, arma los equipos 2v2')
+        username = body.get('username', 'TestUser')
+        user_id = body.get('user_id', '123456789')
+        guild_id = body.get('guild_id', DISCORD_CHANNEL_ID)
+        channel_id = body.get('channel_id', TEST_CHANNEL_ID or DISCORD_CHANNEL_ID)
+        mentions = body.get('mentions', [])
+        
+        logger.info(f"[DEV] Simulating message: '{content}' from {username} (user_id={user_id}, channel_id={channel_id})")
+        
+        # Build a minimal Discord MESSAGE_CREATE event
+        event_data = {
+            "t": "MESSAGE_CREATE",
+            "d": {
+                "id": "sim_msg_id",
+                "content": content,
+                "author": {
+                    "id": user_id,
+                    "username": username,
+                    "global_name": username,
+                    "bot": False
+                },
+                "guild_id": guild_id,
+                "channel_id": channel_id,
+                "mentions": mentions,
+                "type": 0
+            }
         }
-    }
-    
-    # Simulate the message handler
-    message_response = request.json.copy() if request.json else {}
-    message_response.update(event_data)
-    
-    # Process the simulated event
-    response_thread = threading.Thread(
-        target=lambda: message_handler_internal(event_data)
-    )
-    response_thread.daemon = True
-    response_thread.start()
-    
-    return jsonify({
-        "ok": True,
-        "message": f"Simulated message: {content[:50]}..."
-    }), 200
+        
+        # Process the simulated event in a thread
+        response_thread = threading.Thread(
+            target=lambda: message_handler_internal(event_data)
+        )
+        response_thread.daemon = True
+        response_thread.start()
+        
+        logger.info("[DEV] Message processing thread started, returning 200")
+        
+        return jsonify({
+            "ok": True,
+            "message": f"Simulated message: {content[:50]}..."
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[DEV] Error in dev_simulate_message endpoint: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "Internal server error",
+            "details": str(e)
+        }), 500
 
 
 def message_handler_internal(event_data):
