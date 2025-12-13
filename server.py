@@ -1451,6 +1451,12 @@ def message_handler_internal(event_data):
         logger.error(f"Error in message_handler_internal: {str(e)}", exc_info=True)
 
 
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint for Railway health checks"""
+    return jsonify({"status": "ok", "service": "GolfoBot Flask Server"}), 200
+
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint with system status"""
