@@ -713,7 +713,7 @@ async def preprocess_laugh(text: str) -> str:
     return text
 
 
-async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es', engine: str = None, say_voice: str = None):
+async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es-us', engine: str = None, say_voice: str = None):
     """Create TTS audio (gTTS) and play it in a connected voice client."""
     guild_id = None
     try:
