@@ -33,6 +33,11 @@ import wave
 
 load_dotenv()
 
+# Print to stdout before anything else (Railway will see this)
+print("=" * 80, flush=True)
+print("🚀 GOLFOBOT GATEWAY STARTING - LOADING MODULES", flush=True)
+print("=" * 80, flush=True)
+
 import discord
 from discord import Intents, FFmpegPCMAudio
 from discord.ext import voice_recv
@@ -42,6 +47,10 @@ from aiohttp import web
 import hashlib
 from pathlib import Path
 import time
+
+print("=" * 80, flush=True)
+print("📦 Discord modules loaded, configuring logging...", flush=True)
+print("=" * 80, flush=True)
 
 # Configure logging FIRST with immediate flushing
 import sys
@@ -58,6 +67,10 @@ logger.info("=" * 60)
 logger.info("🚀 GolfoBot Gateway Starting...")
 logger.info("=" * 60)
 sys.stdout.flush()
+
+print("=" * 80, flush=True)
+print("🔧 About to load Opus library...", flush=True)
+print("=" * 80, flush=True)
 
 # CRITICAL: Load Opus library for voice support
 logger.info("🔧 Loading Opus library for voice support...")
