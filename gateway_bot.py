@@ -1213,25 +1213,53 @@ async def voice_health_monitor():
 
 @client.event
 async def on_ready():
+    print("=" * 80, flush=True)
+    print("🎯 ON_READY EVENT TRIGGERED", flush=True)
+    print("=" * 80, flush=True)
+    
     logger.info(f'Logged in as {client.user} (ID: {client.user.id})')
     logger.info('Gateway bot ready and listening for messages')
     
-    # Log Opus status
+    # Log Opus status with EXTRA visibility
+    print("=" * 80, flush=True)
+    print("🔍 CHECKING OPUS LIBRARY STATUS...", flush=True)
+    print("=" * 80, flush=True)
+    
     try:
         import discord.opus
         opus_loaded = discord.opus.is_loaded()
-        logger.info(f"Opus library status: {'✅ LOADED' if opus_loaded else '❌ NOT LOADED'}")
+        
+        status_msg = f"Opus library status: {'✅ LOADED' if opus_loaded else '❌ NOT LOADED'}"
+        logger.info(status_msg)
+        print(status_msg, flush=True)
+        
         if not opus_loaded:
-            logger.error("⚠️ Voice receiving will NOT work without Opus!")
-            # Try to find libopus files for debugging
+            error_msg = "⚠️ CRITICAL: Voice receiving will NOT work without Opus!"
+            logger.error(error_msg)
+            print(error_msg, flush=True)
+            
+            # Search for libopus files
             try:
                 import subprocess
-                result = subprocess.run(['find', '/nix/store', '-name', 'libopus.so*'], 
-                                      capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    logger.info(f"Found Opus libs in Nix store:\n{result.stdout[:500]}")
+                import glob
+                
+                # Try multiple search methods
+                apt_libs = glob.glob('/usr/lib/*/libopus.so*')
+                print(f"Found {len(apt_libs)} libopus files in /usr/lib: {apt_libs[:3]}", flush=True)
+                
+                # Check if apt packages were installed
+                result = subprocess.run(['dpkg', '-l'], capture_output=True, text=True, timeout=5)
+                if 'libopus' in result.stdout:
+                    print("✅ libopus0 package is installed via apt", flush=True)
+                else:
+                    print("❌ libopus0 package NOT found in dpkg", flush=True)
+                    
             except Exception as find_err:
                 logger.debug(f"Could not search for Opus: {find_err}")
+                print(f"Search error: {find_err}", flush=True)
+    except Exception as e:
+        logger.error(f"Error checking Opus status: {e}")
+        print(f"ERROR checking Opus: {e}", flush=True)
     except Exception as e:
         logger.error(f"Error checking Opus status: {e}")
     
