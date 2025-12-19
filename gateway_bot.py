@@ -43,6 +43,92 @@ import hashlib
 from pathlib import Path
 import time
 
+# CRITICAL: Load Opus before ANY discord.py voice operations
+# This must happen after importing discord but before creating voice clients
+logger.info("=" * 60)
+logger.info("🔧 Loading Opus library for voice support...")
+logger.info("=" * 60)
+sys.stdout.flush()
+
+try:
+    import discord.opus
+    import ctypes.util
+    
+    # Add common library paths to search
+    import os
+    lib_paths = os.environ.get('LD_LIBRARY_PATH', '').split(':')
+    additional_paths = [
+        '/usr/lib/x86_64-linux-gnu',
+        '/usr/lib',
+        '/usr/local/lib',
+        '/lib/x86_64-linux-gnu',
+    ]
+    for path in additional_paths:
+        if path and path not in lib_paths:
+            lib_paths.append(path)
+    os.environ['LD_LIBRARY_PATH'] = ':'.join(filter(None, lib_paths))
+    
+    logger.info(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH')}")
+    sys.stdout.flush()
+    
+    # Try to find libopus using ctypes
+    opus_path = ctypes.util.find_library('opus')
+    logger.info(f"ctypes.util.find_library('opus'): {opus_path}")
+    sys.stdout.flush()
+    
+    if not discord.opus.is_loaded():
+        import glob
+        
+        # Search multiple locations
+        search_paths = [
+            '/usr/lib/x86_64-linux-gnu/libopus.so*',
+            '/usr/lib/libopus.so*',
+            '/usr/local/lib/libopus.so*',
+            '/lib/x86_64-linux-gnu/libopus.so*',
+            '/nix/store/*/lib/libopus.so*',
+        ]
+        
+        found_libs = []
+        for pattern in search_paths:
+            found_libs.extend(glob.glob(pattern))
+        
+        logger.info(f"Found {len(found_libs)} libopus files: {found_libs[:3]}")
+        sys.stdout.flush()
+        
+        # Try different loading strategies
+        load_attempts = [
+            'opus',
+            'libopus.so.0',
+            'libopus.so',
+            'libopus',
+        ] + found_libs
+        
+        for i, lib_path in enumerate(load_attempts):
+            try:
+                logger.info(f"Attempt {i+1}: Trying to load {lib_path}")
+                sys.stdout.flush()
+                discord.opus.load_opus(lib_path)
+                logger.info(f"✅ SUCCESS! Loaded Opus from: {lib_path}")
+                sys.stdout.flush()
+                break
+            except Exception as e:
+                logger.debug(f"  Failed: {e}")
+                continue
+        
+        if not discord.opus.is_loaded():
+            logger.error("❌ CRITICAL: Failed to load Opus library!")
+            logger.error("Voice receiving will NOT work without Opus!")
+            sys.stdout.flush()
+    else:
+        logger.info("✅ Opus already loaded")
+        sys.stdout.flush()
+        
+except Exception as e:
+    logger.error(f"❌ Error during Opus loading: {e}")
+    import traceback
+    logger.error(traceback.format_exc())
+    sys.stdout.flush()
+
 # Configure logging FIRST with immediate flushing
 import sys
 logging.basicConfig(
