@@ -134,6 +134,7 @@ app = Flask(__name__)
 # Configuration
 DISCORD_PUBLIC_KEY = os.environ.get('DISCORD_PUBLIC_KEY')
 DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
+DISCORD_APP_ID = os.environ.get('DISCORD_APP_ID')
 DISCORD_CHANNEL_ID = os.environ.get('DISCORD_CHANNEL_ID')
 
 # Test channel for development and chat interactions
@@ -691,7 +692,7 @@ def update_interaction_message(interaction_token, content):
     payload = {"content": content}
     
     response = requests.patch(
-        f"https://discord.com/api/v10/webhooks/{os.environ.get('DISCORD_APP_ID')}/{interaction_token}/messages/@original",
+        f"https://discord.com/api/v10/webhooks/{DISCORD_APP_ID}/{interaction_token}/messages/@original",
         headers=headers,
         json=payload,
         timeout=10
@@ -1492,6 +1493,7 @@ if __name__ == '__main__':
     required_vars = [
         'DISCORD_PUBLIC_KEY',
         'DISCORD_BOT_TOKEN',
+        'DISCORD_APP_ID',
         'DISCORD_CHANNEL_ID'
     ]
     
