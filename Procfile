@@ -1,2 +1,2 @@
-web: python server.py
-worker: python gateway_bot.py
+web: python gateway_bot.py
+worker: python server.py
