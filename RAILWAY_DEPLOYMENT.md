@@ -193,6 +193,49 @@ If Railway becomes too expensive, Fly.io has a better free tier:
 
 Let me know if you want Fly.io deployment files instead!
 
+## Troubleshooting Voice Issues
+
+If the bot joins voice channels but doesn't respond to speech on Railway:
+
+### 1. Check Opus Library Status
+
+The bot needs libopus to decode voice packets. Check logs for:
+
+- `✅ Successfully loaded Opus from:` - Good!
+- `❌ Failed to load Opus library` - Problem!
+
+If Opus isn't loading:
+
+1. Verify `Aptfile` includes `libopus0` and `libopus-dev`
+2. Verify `nixpacks.toml` includes `libopus` in nixPkgs
+3. Redeploy after changes to force package reinstall
+
+### 2. Check Voice Packet Reception
+
+Look for these log messages:
+
+- `🎙️ First voice packet received from {user}` - Voice is working!
+- `❌ PCM data is None - Opus decoding failed!` - Opus problem!
+- No messages at all - Network/firewall issue
+
+### 3. Check Speech Recognition
+
+Speech recognition requires:
+
+- Working internet connection (calls Google Speech API)
+- No rate limiting on Google's end
+- Look for: `✅ Transcribed (es-MX): {text}`
+
+### 4. Test Locally First
+
+Always test voice features locally before deploying:
+
+```bash
+python gateway_bot.py
+```
+
+If it works locally but not on Railway, it's an environment issue (usually Opus).
+
 ## Support
 
 - Railway Discord: https://discord.gg/railway

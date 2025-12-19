@@ -43,6 +43,35 @@ import hashlib
 from pathlib import Path
 import time
 
+# Load Opus explicitly with fallback paths for Railway
+try:
+    import discord.opus
+    if not discord.opus.is_loaded():
+        # Try common paths for libopus
+        opus_paths = [
+            'libopus.so.0',
+            'libopus.so',
+            '/usr/lib/x86_64-linux-gnu/libopus.so.0',
+            '/usr/lib/libopus.so.0',
+            '/usr/local/lib/libopus.so.0',
+            'opus'
+        ]
+        for opus_path in opus_paths:
+            try:
+                discord.opus.load_opus(opus_path)
+                logger.info(f"✅ Successfully loaded Opus from: {opus_path}")
+                break
+            except Exception:
+                continue
+        
+        if not discord.opus.is_loaded():
+            logger.error("❌ Failed to load Opus library - voice receiving will not work!")
+            logger.error("Please ensure libopus0 is installed on the system")
+    else:
+        logger.info("✅ Opus already loaded")
+except Exception as e:
+    logger.error(f"❌ Error loading Opus: {e}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('gateway_bot')
@@ -189,6 +218,12 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         
     async def on_voice_member_packet(self, member, packet):
         """Called when audio packet is received from a member."""
+        
+        # Log first packet received to confirm voice is working
+        if not hasattr(self, '_first_packet_logged'):
+            self._first_packet_logged = True
+            logger.info(f"🎙️ First voice packet received from {member.name if member else 'unknown'}")
+        
         logger.debug(f"Received packet from {member.name if member else 'unknown'}")
         
         if not member or member.bot:
@@ -228,7 +263,20 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         # Decode opus packet to PCM
         try:
             # Since wants_opus()=False, packet.pcm should contain decoded PCM audio
+            if not hasattr(packet, 'pcm') and not hasattr(packet, 'data'):
+                logger.error(f"❌ Packet has no pcm or data attribute - Opus decoder may not be working!")
+                return
+                
             pcm_data = packet.pcm if hasattr(packet, 'pcm') else getattr(packet, 'data', None)
+            
+            if pcm_data is None:
+                logger.error(f"❌ PCM data is None - Opus decoding failed!")
+                return
+                
+            if len(pcm_data) == 0:
+                logger.debug(f"Empty PCM data from {member.name}")
+                return
+                
             if pcm_data and len(pcm_data) > 0:
                 # Enforce max buffer size to prevent memory overflow
                 if len(audio_buffers[key]) >= MAX_AUDIO_BUFFER_PACKETS:
@@ -465,11 +513,23 @@ async def start_voice_listening(vc):
                 # Called when sink is stopped
                 pass
         
+        # Check if Opus is loaded before starting
+        try:
+            import discord.opus
+            if not discord.opus.is_loaded():
+                logger.error("❌ Opus not loaded! Voice listening will fail. Check Aptfile/nixpacks.toml")
+                raise RuntimeError("Opus codec not loaded - cannot decode voice packets")
+        except ImportError:
+            logger.error("❌ discord.opus module not available!")
+            raise
+            
         sink = CustomSink(vc)
         vc.listen(sink)
-        logger.info(f"Started listening with CustomSink for guild {guild_id}")
+        logger.info(f"✅ Started listening with CustomSink for guild {guild_id}")
+        logger.info(f"✅ Opus status: loaded={discord.opus.is_loaded()}")
     except Exception as e:
-        logger.error(f"Failed to start listening: {e}", exc_info=True)
+        logger.error(f"❌ Failed to start listening: {e}", exc_info=True)
+        raise
         
     # Mark as listening
     voice_listeners[guild_id] = {'active': True, 'vc': vc}
@@ -1757,9 +1817,29 @@ async def handle_voices_preview(request):
         return web.json_response({'error': str(e)}, status=500)
 
 
+async def handle_status(request):
+    """Status endpoint to check bot and Opus health."""
+    try:
+        import discord.opus
+        opus_loaded = discord.opus.is_loaded()
+    except:
+        opus_loaded = False
+    
+    status = {
+        "bot_ready": client.is_ready() if client else False,
+        "opus_loaded": opus_loaded,
+        "voice_clients": len(client.voice_clients) if client else 0,
+        "guilds": len(client.guilds) if client and client.guilds else 0,
+        "voice_listeners": len(voice_listeners)
+    }
+    
+    return web.json_response(status)
+
+
 async def start_debug_http_server(host='127.0.0.1', port=8765):
     app = web.Application()
     app.router.add_post('/debug/join', handle_debug_join)
+    app.router.add_get('/status', handle_status)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
