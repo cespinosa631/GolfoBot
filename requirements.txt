@@ -3,9 +3,6 @@ requests
 python-dotenv
 APScheduler
 
-# Crypto/verification (pure-Python)
-ed25519
-
 # Official Google Generative AI client
 google-generativeai
 
