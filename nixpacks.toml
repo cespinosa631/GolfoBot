@@ -1,5 +1,8 @@
 [phases.setup]
 nixPkgs = ['python310', 'ffmpeg', 'libopus', 'pkg-config']
 
+[phases.install]
+cmds = ['echo "FFmpeg path: $(which ffmpeg || echo not found)"', 'echo "Libopus search:"; find /nix/store -name "libopus.so*" 2>/dev/null | head -5 || echo "not found"']
+
 [start]
 cmd = 'python gateway_bot.py'
