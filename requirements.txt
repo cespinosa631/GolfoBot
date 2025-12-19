@@ -12,5 +12,6 @@ discord-ext-voice-recv
 PyNaCl
 SpeechRecognition
 gTTS
+piper-tts
 aiohttp
 groq

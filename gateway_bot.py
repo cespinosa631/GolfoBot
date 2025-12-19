@@ -824,7 +824,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             try:
                 import piper
                 import wave
-                piper_model = os.environ.get('PIPER_MODEL', '/Users/cristianespinosa/Documents/Discord_Bots/GolfoStreams/piper_models/es_MX-ald-medium.onnx')
+                piper_model = os.environ.get('PIPER_MODEL', './piper_models/es_MX-ald-medium.onnx')
                 if not os.path.exists(piper_model):
                     logger.warning(f'Piper model not found at {piper_model}; falling back to gTTS')
                     tts = gTTS(text=text, lang=lang)
