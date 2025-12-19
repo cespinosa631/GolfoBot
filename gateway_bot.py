@@ -43,11 +43,24 @@ import hashlib
 from pathlib import Path
 import time
 
-# CRITICAL: Load Opus before ANY discord.py voice operations
-# This must happen after importing discord but before creating voice clients
+# Configure logging FIRST with immediate flushing
+import sys
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+    force=True
+)
+sys.stdout.flush()
+logger = logging.getLogger('gateway_bot')
+
 logger.info("=" * 60)
+logger.info("🚀 GolfoBot Gateway Starting...")
+logger.info("=" * 60)
+sys.stdout.flush()
+
+# CRITICAL: Load Opus library for voice support
 logger.info("🔧 Loading Opus library for voice support...")
-logger.info("=" * 60)
 sys.stdout.flush()
 
 try:
@@ -127,70 +140,6 @@ except Exception as e:
     logger.error(f"❌ Error during Opus loading: {e}")
     import traceback
     logger.error(traceback.format_exc())
-    sys.stdout.flush()
-
-# Configure logging FIRST with immediate flushing
-import sys
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout,
-    force=True
-)
-sys.stdout.flush()
-logger = logging.getLogger('gateway_bot')
-
-logger.info("=" * 60)
-logger.info("🚀 GolfoBot Gateway Starting...")
-logger.info("=" * 60)
-sys.stdout.flush()
-
-# Load Opus explicitly with fallback paths for Railway/Nix
-try:
-    import discord.opus
-    logger.info("Checking Opus library status...")
-    sys.stdout.flush()
-    
-    if not discord.opus.is_loaded():
-        # Try common paths for libopus (including Nix store paths)
-        import glob
-        nix_opus_libs = glob.glob('/nix/store/*/lib/libopus.so*')
-        
-        opus_paths = [
-            'opus',  # Try name first
-            'libopus.so.0',
-            'libopus.so',
-            '/usr/lib/x86_64-linux-gnu/libopus.so.0',
-            '/usr/lib/libopus.so.0',
-            '/usr/local/lib/libopus.so.0',
-            '/lib/x86_64-linux-gnu/libopus.so.0',
-        ] + nix_opus_libs  # Add Nix store paths
-        
-        logger.info(f"🔍 Searching for Opus library in {len(opus_paths)} locations...")
-        sys.stdout.flush()
-        
-        loaded = False
-        for opus_path in opus_paths:
-            try:
-                discord.opus.load_opus(opus_path)
-                logger.info(f"✅ Successfully loaded Opus from: {opus_path}")
-                sys.stdout.flush()
-                loaded = True
-                break
-            except Exception as e:
-                logger.debug(f"Failed to load from {opus_path}: {e}")
-                continue
-        
-        if not loaded:
-            logger.error("❌ Failed to load Opus library - voice receiving will not work!")
-            logger.error("Please ensure libopus is installed on the system")
-            logger.error(f"Tried paths: {opus_paths[:5]}...")
-            sys.stdout.flush()
-    else:
-        logger.info("✅ Opus already loaded")
-        sys.stdout.flush()
-except Exception as e:
-    logger.error(f"❌ Error loading Opus: {e}")
     sys.stdout.flush()
 
 # Suppress Discord voice_recv opus errors (malformed packets during reconnections)
