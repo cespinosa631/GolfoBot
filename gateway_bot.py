@@ -1889,10 +1889,10 @@ async def handle_voices_preview(request):
                 # Attempt the guarded tortoise helper
                 generate_tortoise_audio(text, tmp_path, voice_name=os.environ.get('VOICE_TORTOISE_VOICE'))
             except Exception:
-                tts = gTTS(text=text, lang='es')
+                tts = gTTS(text=text, lang='es-us')
                 tts.save(tmp_path)
         else:
-            tts = gTTS(text=text, lang='es')
+            tts = gTTS(text=text, lang='es-us')
             tts.save(tmp_path)
 
         # Optionally convert via VC
