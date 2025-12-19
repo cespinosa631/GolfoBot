@@ -1,11 +1,2 @@
 [phases.setup]
 aptPkgs = ['ffmpeg', 'libopus0', 'libopus-dev', 'libffi-dev']
-
-[phases.install]
-cmds = [
-  'echo "===== VERIFYING OPUS INSTALLATION ====="',
-  'dpkg -l | grep opus || echo "No opus packages found via dpkg"',
-  'find /usr -name "libopus.so*" 2>/dev/null || echo "No libopus.so files found"',
-  'ldconfig -p | grep opus || echo "No opus in ldconfig"',
-  'echo "======================================="'
-]
