@@ -43,38 +43,48 @@ import hashlib
 from pathlib import Path
 import time
 
-# Load Opus explicitly with fallback paths for Railway
+# Configure logging FIRST
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('gateway_bot')
+
+# Load Opus explicitly with fallback paths for Railway/Nix
 try:
     import discord.opus
     if not discord.opus.is_loaded():
-        # Try common paths for libopus
+        # Try common paths for libopus (including Nix store paths)
+        import glob
+        nix_opus_libs = glob.glob('/nix/store/*/lib/libopus.so*')
+        
         opus_paths = [
+            'opus',  # Try name first
             'libopus.so.0',
             'libopus.so',
             '/usr/lib/x86_64-linux-gnu/libopus.so.0',
             '/usr/lib/libopus.so.0',
             '/usr/local/lib/libopus.so.0',
-            'opus'
-        ]
+            '/lib/x86_64-linux-gnu/libopus.so.0',
+        ] + nix_opus_libs  # Add Nix store paths
+        
+        logger.info(f"🔍 Searching for Opus library in {len(opus_paths)} locations...")
+        loaded = False
         for opus_path in opus_paths:
             try:
                 discord.opus.load_opus(opus_path)
                 logger.info(f"✅ Successfully loaded Opus from: {opus_path}")
+                loaded = True
                 break
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to load from {opus_path}: {e}")
                 continue
         
-        if not discord.opus.is_loaded():
+        if not loaded:
             logger.error("❌ Failed to load Opus library - voice receiving will not work!")
-            logger.error("Please ensure libopus0 is installed on the system")
+            logger.error("Please ensure libopus is installed on the system")
+            logger.error(f"Tried paths: {opus_paths[:5]}...")
     else:
         logger.info("✅ Opus already loaded")
 except Exception as e:
     logger.error(f"❌ Error loading Opus: {e}")
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('gateway_bot')
 
 # Suppress Discord voice_recv opus errors (malformed packets during reconnections)
 logging.getLogger('discord.ext.voice_recv.router').setLevel(logging.CRITICAL)
@@ -1136,6 +1146,26 @@ async def voice_health_monitor():
 async def on_ready():
     logger.info(f'Logged in as {client.user} (ID: {client.user.id})')
     logger.info('Gateway bot ready and listening for messages')
+    
+    # Log Opus status
+    try:
+        import discord.opus
+        opus_loaded = discord.opus.is_loaded()
+        logger.info(f"Opus library status: {'✅ LOADED' if opus_loaded else '❌ NOT LOADED'}")
+        if not opus_loaded:
+            logger.error("⚠️ Voice receiving will NOT work without Opus!")
+            # Try to find libopus files for debugging
+            try:
+                import subprocess
+                result = subprocess.run(['find', '/nix/store', '-name', 'libopus.so*'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.stdout:
+                    logger.info(f"Found Opus libs in Nix store:\n{result.stdout[:500]}")
+            except Exception as find_err:
+                logger.debug(f"Could not search for Opus: {find_err}")
+    except Exception as e:
+        logger.error(f"Error checking Opus status: {e}")
+    
     # Start a small local HTTP server for test triggers (only binds to localhost)
     try:
         asyncio.create_task(start_debug_http_server())
