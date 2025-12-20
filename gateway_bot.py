@@ -803,7 +803,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                     shutil.copy(aiff_path, tmp_path)
             except Exception as e:
                 logger.warning(f"say engine failed, falling back to gTTS: {e}")
-                tts = gTTS(text=text, lang=lang)
+                tts = gTTS(text=text, lang='es', tld='com.mx')
                 tts.save(tmp_path)
             finally:
                 try:
@@ -817,7 +817,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                 generate_tortoise_audio(text, tmp_path, voice_name=os.environ.get('VOICE_TORTOISE_VOICE'))
             except Exception:
                 logger.warning('Tortoise engine requested but failed; falling back to gTTS')
-                tts = gTTS(text=text, lang=lang)
+                tts = gTTS(text=text, lang='es', tld='com.mx')
                 tts.save(tmp_path)
         elif engine == 'piper':
             # Piper TTS: local, fast, high-quality voice synthesis
@@ -827,7 +827,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                 piper_model = os.environ.get('PIPER_MODEL', './piper_models/es_MX-ald-medium.onnx')
                 if not os.path.exists(piper_model):
                     logger.warning(f'Piper model not found at {piper_model}; falling back to gTTS')
-                    tts = gTTS(text=text, lang=lang)
+                    tts = gTTS(text=text, lang='es', tld='com.mx')
                     tts.save(tmp_path)
                 else:
                     # Generate WAV file with Piper
@@ -872,7 +872,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                                 pass
             except Exception as e:
                 logger.warning(f'Piper engine failed: {e}; falling back to gTTS')
-                tts = gTTS(text=text, lang=lang)
+                tts = gTTS(text=text, lang='es', tld='com.mx')
                 tts.save(tmp_path)
         elif engine == 'elevenlabs':
             # ElevenLabs TTS integration. Support both ELEVENLABS_API_KEY and ELEVEN_LABS_API_KEY env names.
@@ -881,7 +881,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             eleven_model = os.environ.get('ELEVENLABS_MODEL', 'eleven_multilingual_v1')
             if not eleven_key or not eleven_voice:
                 logger.warning('ElevenLabs engine requested but API key or voice_id missing; falling back to gTTS')
-                tts = gTTS(text=text, lang=lang)
+                tts = gTTS(text=text, lang='es', tld='com.mx')
                 tts.save(tmp_path)
             else:
                 try:
@@ -898,16 +898,16 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                     else:
                         logger.error(f'❌ ElevenLabs TTS failed {resp.status_code}: {resp.text[:500]}')
                         logger.warning('Falling back to gTTS due to ElevenLabs error')
-                        tts = gTTS(text=text, lang=lang)
+                        tts = gTTS(text=text, lang='es', tld='com.mx')
                         tts.save(tmp_path)
                 except Exception as e:
                     logger.error(f'❌ Error calling ElevenLabs API: {e}; falling back to gTTS')
-                    tts = gTTS(text=text, lang=lang)
+                    tts = gTTS(text=text, lang='es', tld='com.mx')
                     tts.save(tmp_path)
         else:
-            # Default: gTTS (Google Translate TTS) - may sound female depending on backend
-            logger.info(f"Using gTTS engine, text length: {len(text)}, lang: {lang}")
-            tts = gTTS(text=text, lang=lang)
+            # Default: gTTS (Google Translate TTS) with Mexican accent
+            logger.info(f"Using gTTS engine with Mexican Spanish (tld=com.mx), text length: {len(text)}")
+            tts = gTTS(text=text, lang='es', tld='com.mx')
             tts.save(tmp_path)
             # Verify file was created
             if os.path.exists(tmp_path):
@@ -916,7 +916,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                 if file_size == 0:
                     logger.error("gTTS file is 0 bytes! Regenerating...")
                     # Try again
-                    tts = gTTS(text=text, lang=lang)
+                    tts = gTTS(text=text, lang='es', tld='com.mx')
                     tts.save(tmp_path)
                     file_size = os.path.getsize(tmp_path)
                     logger.info(f"Second attempt size: {file_size} bytes")
