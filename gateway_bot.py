@@ -1568,10 +1568,7 @@ async def on_message(message: discord.Message):
                     reply_text = f"¡Sálte tú {author.display_name}!"
                     await message.channel.send(reply_text)
                     logger.info(f"Ignored leave request from blocked user {author.display_name} ({author.id})")
-                    # Also speak the response if in voice
-                    vc = next((v for v in client.voice_clients if v.guild.id == message.guild.id), None)
-                    if vc:
-                        await tts_play(vc, reply_text)
+                    # Don't speak in voice - it would interrupt bot's own speech
                 except Exception as e:
                     logger.error(f"Error responding to blocked user leave request: {e}")
             else:
