@@ -878,7 +878,7 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             # ElevenLabs TTS integration. Support both ELEVENLABS_API_KEY and ELEVEN_LABS_API_KEY env names.
             eleven_key = os.environ.get('ELEVENLABS_API_KEY') or os.environ.get('ELEVEN_LABS_API_KEY')
             eleven_voice = (say_voice or os.environ.get('ELEVENLABS_VOICE_ID') or os.environ.get('ELEVEN_LABS_VOICE_ID'))
-            eleven_model = os.environ.get('ELEVENLABS_MODEL', 'eleven_v3_alpha')
+            eleven_model = os.environ.get('ELEVENLABS_MODEL', 'eleven_v3')
             if not eleven_key or not eleven_voice:
                 logger.warning('ElevenLabs engine requested but API key or voice_id missing; falling back to gTTS')
                 tts = gTTS(text=text, lang='es', tld='com.mx')
