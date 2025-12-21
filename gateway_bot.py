@@ -167,7 +167,6 @@ TEST_CHANNEL_ID = os.environ.get('TEST_CHANNEL_ID')
 PARTIDA_1_VOICE_CHANNEL_ID = os.environ.get('PARTIDA_1_VOICE_CHANNEL_ID')
 TEST_VOICE_CHANNEL_ID = os.environ.get('TEST_VOICE_CHANNEL_ID')
 
-
 if not DISCORD_BOT_TOKEN:
     logger.error('DISCORD_BOT_TOKEN not set in environment. Exiting.')
     raise SystemExit(1)
@@ -1700,7 +1699,9 @@ async def handle_debug_join(request):
                                 await asyncio.sleep(0.25)
                             if played_result:
                                 break
-                   
+                    except Exception as e:
+                        last_exc = e
+                        logger.exception(f"background: unexpected error during connect/play attempt: {e}")
 
                     # Wait and retry
                     await asyncio.sleep(retry_interval)
