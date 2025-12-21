@@ -161,11 +161,12 @@ logging.getLogger('discord.ext.voice_recv.reader').setLevel(logging.WARNING)
 logging.getLogger('discord.voice_state').setLevel(logging.WARNING)  # Reduce voice reconnection noise
 
 DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
-FLASK_HOST = os.environ.get('FLASK_HOST', 'http://127.0.0.1:5000')
+FLASK_HOST = os.environ.get('FLASK_HOST')
 DEV_SIMULATE_ENDPOINT = f"{FLASK_HOST}/dev/simulate_message"
 TEST_CHANNEL_ID = os.environ.get('TEST_CHANNEL_ID')
 PARTIDA_1_VOICE_CHANNEL_ID = os.environ.get('PARTIDA_1_VOICE_CHANNEL_ID')
 TEST_VOICE_CHANNEL_ID = os.environ.get('TEST_VOICE_CHANNEL_ID')
+
 
 if not DISCORD_BOT_TOKEN:
     logger.error('DISCORD_BOT_TOKEN not set in environment. Exiting.')
@@ -1699,9 +1700,7 @@ async def handle_debug_join(request):
                                 await asyncio.sleep(0.25)
                             if played_result:
                                 break
-                    except Exception as e:
-                        last_exc = e
-                        logger.exception(f"background: unexpected error during connect/play attempt: {e}")
+                   
 
                     # Wait and retry
                     await asyncio.sleep(retry_interval)
