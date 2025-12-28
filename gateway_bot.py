@@ -252,37 +252,16 @@ def get_context_summary(guild_id: int) -> str:
     
     return "\n".join(context_lines)
 
-def is_addressing_bot(text: str) -> bool:
-    """Check if the transcribed text is addressing the bot."""
+def is_addressing_bot(text: str, bot_id: int) -> bool:
+    """Check if the transcribed text is addressing the bot explicitly by tag."""
     if not text:
         return False
-    
-    text_lower = text.lower()
-    
-    # Check for specific bot names (not just "golfo" alone)
-    for trigger in BOT_TRIGGER_NAMES:
-        if trigger in text_lower:
-            return True
-    
-    # Check for "golfo" + attention word combination (e.g., "oye golfo", "hey golfo")
-    # This distinguishes "Golfo [the bot]" from "Golfo de México [the server]"
-    if 'golfo' in text_lower:
-        for attention in ATTENTION_WORDS:
-            if attention in text_lower:
-                return True
-    
-    # Check for questions directed at bot (attention word + question)
-    question_words = ['qué', 'que', 'cómo', 'como', 'cuál', 'cual', 'dónde', 'donde', 
-                     'cuándo', 'cuando', 'por qué', 'porque', 'quién', 'quien']
-    
-    has_attention = any(attention in text_lower for attention in ATTENTION_WORDS)
-    has_question = any(q in text_lower for q in question_words)
-    
-    # If it starts with attention word AND has a question AND is short (< 20 words)
-    words = text_lower.split()
-    if has_attention and has_question and len(words) <= 20:
+
+    # Check if the bot is explicitly tagged
+    mention_tag = f"<@{bot_id}>"
+    if mention_tag in text:
         return True
-    
+
     return False
 
 
@@ -424,7 +403,7 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                 add_to_context(guild_id, member.display_name, text)
                 
                 # Check if the bot is being addressed
-                is_addressed = is_addressing_bot(text)
+                is_addressed = is_addressing_bot(text, self.client.user.id)
                 
                 # Random chance to reply even when not addressed
                 random_reply = random.random() < RANDOM_REPLY_PROBABILITY
@@ -535,6 +514,12 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                     payload['context'] = context
                     logger.info(f"Including conversation context: {len(context)} chars")
             
+            # Check if the bot is being explicitly tagged
+            bot_id = self.client.user.id  # Get the bot's ID
+            if not is_addressing_bot(text, bot_id):
+                logger.info(f"Bot not explicitly tagged - ignoring speech from {username}")
+                return
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(f"{FLASK_HOST}/dev/llm_reply", json=payload, timeout=10) as resp:
                     if resp.status == 200:
@@ -1734,7 +1719,7 @@ async def handle_debug_join(request):
                 logger.warning('handle_debug_join (blocking): voice client not connected; returning played:false')
                 return web.json_response({'ok': True, 'played': False})
 
-            played = await tts_play(vc, text, engine=engine, say_voice=say_voice)
+            played = await tts_play(vc, text, engine, say_voice)
             return web.json_response({'ok': True, 'played': bool(played)})
         except Exception as e:
             logger.exception(f"Debug join error (blocking): {e}")
