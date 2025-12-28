@@ -203,7 +203,7 @@ RANDOM_REPLY_PROBABILITY = 0.20  # 20% chance to reply even when not addressed
 CONTEXT_MAX_ENTRIES = 5  # Keep last 5 speech entries for context (reduced from 10 for memory)
 CONTEXT_TIMEOUT = 300  # 5 minutes - clear context after this
 VOICE_HEALTH_CHECK_INTERVAL = 20  # Check voice connection health every 20 seconds (more frequent)
-VOICE_PACKET_TIMEOUT = 60  # Reconnect if no packets received for 1 minute (more aggressive)
+VOICE_PACKET_TIMEOUT = None  # Disable timeout-based reconnections
 VOICE_KEEPALIVE_INTERVAL = 30  # Send speaking state update every 30s to keep connection alive
 RECONNECT_GRACE_PERIOD = 3  # Ignore packets received within 3 seconds after reconnection
 MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory overflow, ~10 seconds)
@@ -270,8 +270,8 @@ class VoiceListener(voice_recv.VoiceRecvClient):
     
     def __init__(self, client, channel):
         super().__init__(client, channel)
-        # Set reconnect to True to automatically handle disconnections
-        self.reconnect = True
+        # Disable automatic reconnections
+        self.reconnect = False  # Set to False to prevent reconnection attempts
         logger.info(f"VoiceListener initialized for channel {channel.id}")
         
     async def on_voice_member_packet(self, member, packet):
@@ -292,13 +292,6 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             return
             
         guild_id = self.guild.id
-        
-        # Skip packets received during grace period after reconnection (stale buffered packets)
-        if guild_id in voice_reconnect_time:
-            time_since_reconnect = time.time() - voice_reconnect_time[guild_id]
-            if time_since_reconnect < RECONNECT_GRACE_PERIOD:
-                logger.debug(f"Ignoring stale packet from {member.name} during reconnect grace period ({time_since_reconnect:.1f}s)")
-                return
         
         # Skip processing if bot is currently speaking (prevents Silk codec crash)
         if guild_id in bot_is_speaking:
