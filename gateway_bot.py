@@ -210,9 +210,7 @@ MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory
 
 # Bot names that indicate someone is talking to it
 BOT_TRIGGER_NAMES = [
-    'golfito', 'golfobot', 'golfostreams', 'bot', 'streams',
-    'golfo', 'golf', 'compa', 'compadre', 'amigo', 'bro',
-    'asistente', 'ayudante', 'ai'
+    'golfito', 'golfobot'
 ]
 
 # Attention-getting words that indicate direct address
@@ -1289,6 +1287,7 @@ async def on_voice_state_update(member, before, after):
 
 @client.event
 async def on_message(message: discord.Message):
+    """Handle incoming messages and respond only when tagged."""
     # Ignore messages from the bot itself
     if message.author.bot:
         return
@@ -1300,14 +1299,11 @@ async def on_message(message: discord.Message):
 
     logger.info(f"Received message from {author} ({author.id}) in channel {channel_id}: {content[:120]}")
 
-    # If TEST_CHANNEL_ID is set, only act on that channel — unless the bot is mentioned
-    if TEST_CHANNEL_ID and channel_id != str(TEST_CHANNEL_ID):
-        # allow forwarding if the bot was explicitly mentioned by id or name
-        content_lower = content.lower()
-        bot_mentioned_here = any(str(m.id) == str(client.user.id) for m in message.mentions) if client.user else False
-        if 'golfobot' not in content_lower and not bot_mentioned_here:
-            logger.debug('Message not in TEST_CHANNEL_ID and not mentioning bot, ignoring')
-            return
+    # Check if the bot is explicitly mentioned
+    bot_id = client.user.id  # Dynamically get the bot's ID
+    if not is_addressing_bot(content, bot_id):
+        logger.debug("Bot not mentioned, ignoring message.")
+        return
 
     # Build a MESSAGE_CREATE-shaped event to forward
     payload = {
@@ -1330,6 +1326,7 @@ async def on_message(message: discord.Message):
 
     # Forward to Flask dev simulate endpoint which will reuse the existing handlers
     asyncio.create_task(forward_to_flask(payload))
+
 
     # Voice/TTS and match management triggers
     content_lower = content.lower()
