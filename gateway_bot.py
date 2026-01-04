@@ -17,6 +17,7 @@ Notes:
 """
 
 import os
+import numpy as np
 import asyncio
 import logging
 import json
@@ -203,7 +204,7 @@ RANDOM_REPLY_PROBABILITY = 0.20  # 20% chance to reply even when not addressed
 CONTEXT_MAX_ENTRIES = 5  # Keep last 5 speech entries for context (reduced from 10 for memory)
 CONTEXT_TIMEOUT = 300  # 5 minutes - clear context after this
 VOICE_HEALTH_CHECK_INTERVAL = 20  # Check voice connection health every 20 seconds (more frequent)
-VOICE_PACKET_TIMEOUT = -1  # Disable timeout-based reconnections
+VOICE_PACKET_TIMEOUT = np.inf  # Disable timeout-based reconnections
 VOICE_KEEPALIVE_INTERVAL = 30  # Send speaking state update every 30s to keep connection alive
 RECONNECT_GRACE_PERIOD = 3  # Ignore packets received within 3 seconds after reconnection
 MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory overflow, ~10 seconds)
