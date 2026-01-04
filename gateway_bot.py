@@ -291,6 +291,13 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             self._first_packet_logged = True
             logger.info(f"🎙️ First voice packet received from {member.name if member else 'unknown'}")
         
+        # Add more frequent logging for debugging
+        if not hasattr(self, '_packet_count'):
+            self._packet_count = 0
+        self._packet_count += 1
+        if self._packet_count % 50 == 0:  # Log every 50 packets
+            logger.info(f"📦 Received {self._packet_count} voice packets so far")
+        
         logger.debug(f"Received packet from {member.name if member else 'unknown'}")
         
         if not member or member.bot:
@@ -515,12 +522,6 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                 if context:
                     payload['context'] = context
                     logger.info(f"Including conversation context: {len(context)} chars")
-            
-            # Check if the bot is being explicitly tagged
-            bot_id = self.client.user.id  # Get the bot's ID
-            if not is_addressing_bot(text, bot_id):
-                logger.info(f"Bot not explicitly tagged - ignoring speech from {username}")
-                return
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(f"{FLASK_HOST}/dev/llm_reply", json=payload, timeout=10) as resp:
@@ -570,6 +571,9 @@ async def start_voice_listening(vc):
                 
             def write(self, user, data):
                 # Forward to VoiceListener's packet handler in the event loop
+                if not hasattr(self, '_write_called'):
+                    self._write_called = True
+                    logger.info(f"🔊 CustomSink.write() called for first time - voice packets are flowing!")
                 asyncio.run_coroutine_threadsafe(
                     self.vc_instance.on_voice_member_packet(user, data),
                     self.loop
@@ -593,6 +597,8 @@ async def start_voice_listening(vc):
         vc.listen(sink)
         logger.info(f"✅ Started listening with CustomSink for guild {guild_id}")
         logger.info(f"✅ Opus status: loaded={discord.opus.is_loaded()}")
+        logger.info(f"✅ Voice client channel: {vc.channel.name} ({vc.channel.id})")
+        logger.info(f"✅ Members in channel: {[m.display_name for m in vc.channel.members if not m.bot]}")
     except Exception as e:
         logger.error(f"❌ Failed to start listening: {e}", exc_info=True)
         raise
