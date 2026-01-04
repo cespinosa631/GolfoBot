@@ -211,7 +211,7 @@ MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory
 
 # Bot names that indicate someone is talking to it
 BOT_TRIGGER_NAMES = [
-    'golfito', 'golfobot'
+    'golfito', 'golfobot', 'golfo', 'golfo bot', 'bot'
 ]
 
 # Attention-getting words that indicate direct address
