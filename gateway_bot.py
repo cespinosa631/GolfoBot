@@ -252,13 +252,23 @@ def get_context_summary(guild_id: int) -> str:
     return "\n".join(context_lines)
 
 def is_addressing_bot(text: str, bot_id: int) -> bool:
-    """Check if the transcribed text is addressing the bot explicitly by tag."""
+    """Check if the transcribed text is addressing the bot explicitly by tag or trigger name."""
     if not text:
         return False
 
     # Check if the bot is explicitly tagged
     mention_tag = f"<@{bot_id}>"
     if mention_tag in text:
+        return True
+    
+    # Check if any of the bot's trigger names are mentioned
+    text_lower = text.lower()
+    if any(trigger_name in text_lower for trigger_name in BOT_TRIGGER_NAMES):
+        return True
+    
+    # Check for attention-getting words at the start
+    words = text_lower.split()
+    if words and words[0] in ATTENTION_WORDS:
         return True
 
     return False
