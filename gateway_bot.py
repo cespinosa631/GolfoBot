@@ -217,6 +217,16 @@ BOT_TRIGGER_NAMES = [
 # Attention-getting words that indicate direct address
 ATTENTION_WORDS = ['oye', 'hey', 'escucha', 'ey', 'eh', 'mira', 've', 'ven', 'oiga', 'hola']
 
+# ElevenLabs audio cache directory
+ELEVENLABS_CACHE_DIR = Path('.elevenlabs_cache')
+ELEVENLABS_CACHE_DIR.mkdir(exist_ok=True)
+
+def get_elevenlabs_cache_path(text: str, voice_id: str) -> Path:
+    """Get the cache file path for a given text and voice combination."""
+    # Create a hash of text + voice_id to use as filename
+    text_hash = hashlib.md5(f"{text}_{voice_id}".encode()).hexdigest()
+    return ELEVENLABS_CACHE_DIR / f"{text_hash}.mp3"
+
 def add_to_context(guild_id: int, username: str, text: str):
     """Add speech to conversation context."""
     if guild_id not in conversation_context:
@@ -871,7 +881,11 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             # ElevenLabs TTS integration. Support both ELEVENLABS_API_KEY and ELEVEN_LABS_API_KEY env names.
             eleven_key = os.environ.get('ELEVENLABS_API_KEY') or os.environ.get('ELEVEN_LABS_API_KEY')
             eleven_voice = (os.environ.get('ELEVENLABS_VOICE_ID') or os.environ.get('ELEVEN_LABS_VOICE_ID') or say_voice)
-            eleven_model = os.environ.get('ELEVEN_LABS_MODEL')
+            # Default to Eleven Multilingual v2 (supports Spanish well), or use Eleven Turbo v2.5 for speed
+            # Valid models: eleven_monolingual_v1, eleven_multilingual_v1, eleven_multilingual_v2, 
+            #               eleven_turbo_v2, eleven_turbo_v2_5, eleven_flash_v2, eleven_flash_v2_5
+            eleven_model = os.environ.get('ELEVEN_LABS_MODEL') or os.environ.get('ELEVENLABS_MODEL') or 'eleven_multilingual_v2'
+            
             if not eleven_key or not eleven_voice:
                 logger.warning('ElevenLabs engine requested but API key or voice_id missing; falling back to gTTS')
                 tts = gTTS(text=text, lang='es', tld='com.mx')
@@ -879,20 +893,48 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             else:
                 try:
                     import requests
-                    url = f'https://api.elevenlabs.io/v1/text-to-speech/{eleven_voice}'
-                    headers = {'xi-api-key': eleven_key, 'Content-Type': 'application/json'}
-                    payload = {'text': text, 'model': eleven_model}
-                    logger.info(f"Calling ElevenLabs API for text: {text[:50]}...")
-                    resp = requests.post(url, json=payload, headers=headers, timeout=30)
-                    if resp.status_code == 200:
-                        with open(tmp_path, 'wb') as f:
-                            f.write(resp.content)
-                        logger.info(f"ElevenLabs TTS successful ({len(resp.content)} bytes)")
+                    
+                    # Check cache first
+                    cache_path = get_elevenlabs_cache_path(text, eleven_voice)
+                    if cache_path.exists():
+                        logger.info(f"✅ Using cached ElevenLabs audio for: {text[:50]}...")
+                        shutil.copy(str(cache_path), tmp_path)
                     else:
-                        logger.error(f'❌ ElevenLabs TTS failed {resp.status_code}: {resp.text[:500]}')
-                        logger.warning('Falling back to gTTS due to ElevenLabs error')
-                        tts = gTTS(text=text, lang='es', tld='com.mx')
-                        tts.save(tmp_path)
+                        # Generate new audio
+                        url = f'https://api.elevenlabs.io/v1/text-to-speech/{eleven_voice}'
+                        headers = {'xi-api-key': eleven_key, 'Content-Type': 'application/json'}
+                        
+                        # Build payload with model_id
+                        payload = {
+                            'text': text,
+                            'model_id': eleven_model,
+                            'voice_settings': {
+                                'stability': float(os.environ.get('ELEVENLABS_STABILITY', '0.5')),
+                                'similarity_boost': float(os.environ.get('ELEVENLABS_SIMILARITY', '0.75')),
+                                'style': float(os.environ.get('ELEVENLABS_STYLE', '0.0')),
+                                'use_speaker_boost': os.environ.get('ELEVENLABS_SPEAKER_BOOST', 'true').lower() == 'true'
+                            }
+                        }
+                        
+                        logger.info(f"Calling ElevenLabs API (model={eleven_model}) for text: {text[:50]}...")
+                        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+                        
+                        if resp.status_code == 200:
+                            with open(tmp_path, 'wb') as f:
+                                f.write(resp.content)
+                            logger.info(f"ElevenLabs TTS successful ({len(resp.content)} bytes)")
+                            
+                            # Cache the audio for future use
+                            try:
+                                shutil.copy(tmp_path, str(cache_path))
+                                logger.info(f"💾 Cached audio to {cache_path.name}")
+                            except Exception as cache_err:
+                                logger.warning(f"Failed to cache audio: {cache_err}")
+                        else:
+                            logger.error(f'❌ ElevenLabs TTS failed {resp.status_code}: {resp.text[:500]}')
+                            logger.warning('Falling back to gTTS due to ElevenLabs error')
+                            tts = gTTS(text=text, lang='es', tld='com.mx')
+                            tts.save(tmp_path)
                 except Exception as e:
                     logger.error(f'❌ Error calling ElevenLabs API: {e}; falling back to gTTS')
                     tts = gTTS(text=text, lang='es', tld='com.mx')
