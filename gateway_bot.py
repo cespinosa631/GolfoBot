@@ -1176,15 +1176,28 @@ async def voice_health_monitor():
                 guild_id = vc.guild.id
                 channel = vc.channel
                 
+                # Skip voice clients with dead or closing WebSockets
+                if not hasattr(vc, 'ws') or not vc.ws or vc.ws.closed:
+                    logger.debug(f"Skipping voice client with dead WebSocket in {channel.name}")
+                    continue
+                
                 # Send periodic keepalive by updating speaking state
                 last_ka = last_keepalive.get(guild_id, 0)
                 if current_time - last_ka > VOICE_KEEPALIVE_INTERVAL:
                     try:
-                        # Toggle speaking state to keep connection alive
-                        if hasattr(vc, 'ws') and vc.ws:
+                        # Verify WebSocket is healthy before sending keepalive
+                        if hasattr(vc, 'ws') and vc.ws and not vc.ws.closed:
                             await vc.ws.speak(False)
                             last_keepalive[guild_id] = current_time
                             logger.info(f"✓ Sent voice keepalive to {channel.name}")
+                        else:
+                            logger.debug(f"WebSocket became unhealthy for {channel.name}, skipping keepalive")
+                    except (ConnectionError, RuntimeError, OSError) as e:
+                        # Handle connection-related errors gracefully
+                        if "closing" in str(e).lower() or "closed" in str(e).lower():
+                            logger.info(f"WebSocket closing for {channel.name}, will reconnect if needed")
+                        else:
+                            logger.warning(f"Keepalive connection error for {channel.name}: {e}")
                     except Exception as e:
                         logger.warning(f"Keepalive failed for {channel.name}: {e}")
                 
