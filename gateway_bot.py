@@ -198,6 +198,7 @@ last_voice_packet_time = {}  # guild_id -> timestamp of last voice packet receiv
 voice_reconnect_in_progress = set()  # guild_ids currently reconnecting
 bot_is_speaking = set()  # guild_ids where bot is currently playing TTS (pause listening)
 voice_reconnect_time = {}  # guild_id -> timestamp of last reconnection (to ignore stale packets)
+websocket_closing_since = {}  # guild_id -> timestamp when WebSocket first detected as closing
 
 # Conversation settings
 RANDOM_REPLY_PROBABILITY = 0.20  # 20% chance to reply even when not addressed
@@ -208,6 +209,7 @@ VOICE_PACKET_TIMEOUT = np.inf  # Disable timeout-based reconnections
 VOICE_KEEPALIVE_INTERVAL = 30  # Send speaking state update every 30s to keep connection alive
 RECONNECT_GRACE_PERIOD = 3  # Ignore packets received within 3 seconds after reconnection
 MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory overflow, ~10 seconds)
+WEBSOCKET_CLOSING_TIMEOUT = 60  # If WebSocket stuck in closing state for 60s, force reconnect
 
 # Bot names that indicate someone is talking to it
 BOT_TRIGGER_NAMES = [
@@ -1204,11 +1206,38 @@ async def voice_health_monitor():
                         # Send keepalive - the try-except will catch any connection issues
                         await vc.ws.speak(False)
                         last_keepalive[guild_id] = current_time
+                        # Clear closing tracking since keepalive succeeded
+                        if guild_id in websocket_closing_since:
+                            del websocket_closing_since[guild_id]
                         logger.info(f"✓ Sent voice keepalive to {channel.name}")
                     except (ConnectionError, RuntimeError, OSError) as e:
                         # Handle connection-related errors gracefully
                         if "closing" in str(e).lower() or "closed" in str(e).lower():
-                            logger.info(f"WebSocket closing for {channel.name}, will reconnect if needed")
+                            # Track when WebSocket first started closing
+                            if guild_id not in websocket_closing_since:
+                                websocket_closing_since[guild_id] = current_time
+                                logger.info(f"WebSocket closing for {channel.name}, monitoring for reconnection")
+                            else:
+                                # Check if WebSocket has been closing for too long
+                                closing_duration = current_time - websocket_closing_since[guild_id]
+                                if closing_duration > WEBSOCKET_CLOSING_TIMEOUT:
+                                    logger.warning(f"WebSocket stuck closing for {closing_duration:.0f}s in {channel.name}, forcing reconnection")
+                                    # Trigger reconnection
+                                    if guild_id not in voice_reconnect_in_progress:
+                                        voice_reconnect_in_progress.add(guild_id)
+                                        try:
+                                            await stop_voice_listening(guild_id)
+                                            await vc.disconnect(force=True)
+                                            await asyncio.sleep(2)
+                                            # Reconnect
+                                            new_vc = await channel.connect(cls=VoiceListener, reconnect=True, timeout=30)
+                                            await start_voice_listening(new_vc)
+                                            logger.info(f"✓ Successfully reconnected to {channel.name}")
+                                            del websocket_closing_since[guild_id]
+                                        except Exception as reconnect_err:
+                                            logger.error(f"Failed to reconnect: {reconnect_err}")
+                                        finally:
+                                            voice_reconnect_in_progress.discard(guild_id)
                         else:
                             logger.warning(f"Keepalive connection error for {channel.name}: {e}")
                     except Exception as e:
@@ -1357,14 +1386,14 @@ async def on_voice_state_update(member, before, after):
                 break
         
         if bot_voice_client:
-            # Bot is in the same channel, greet the user
+            # Always greet users - ElevenLabs cache will prevent redundant API calls
             greeting = f"{member.display_name}, ¡sálte!"
-            logger.info(f"User {member.display_name} joined voice channel, greeting them")
+            logger.info(f"User {member.display_name} joined voice channel, greeting them (using cache if available)")
             
             # Wait a moment for the user to fully connect
             await asyncio.sleep(1.0)
             
-            # Speak the greeting
+            # Speak the greeting - cache system in tts_play will reuse audio if available
             try:
                 await tts_play(bot_voice_client, greeting)
             except Exception as e:
