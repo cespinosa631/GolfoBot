@@ -1176,22 +1176,35 @@ async def voice_health_monitor():
                 guild_id = vc.guild.id
                 channel = vc.channel
                 
-                # Skip voice clients with dead or closing WebSockets
-                if not hasattr(vc, 'ws') or not vc.ws or vc.ws.closed:
-                    logger.debug(f"Skipping voice client with dead WebSocket in {channel.name}")
+                # Skip voice clients with dead or unhealthy WebSockets
+                if not hasattr(vc, 'ws') or not vc.ws:
+                    logger.debug(f"Skipping voice client with missing WebSocket in {channel.name}")
+                    continue
+                
+                # Check if WebSocket is closed (handle different discord.py versions)
+                ws_is_closed = False
+                try:
+                    if hasattr(vc.ws, 'closed'):
+                        ws_is_closed = vc.ws.closed
+                    elif hasattr(vc.ws, 'open'):
+                        ws_is_closed = not vc.ws.open
+                    elif hasattr(vc.ws, '_closed'):
+                        ws_is_closed = vc.ws._closed
+                except Exception:
+                    pass
+                
+                if ws_is_closed:
+                    logger.debug(f"Skipping voice client with closed WebSocket in {channel.name}")
                     continue
                 
                 # Send periodic keepalive by updating speaking state
                 last_ka = last_keepalive.get(guild_id, 0)
                 if current_time - last_ka > VOICE_KEEPALIVE_INTERVAL:
                     try:
-                        # Verify WebSocket is healthy before sending keepalive
-                        if hasattr(vc, 'ws') and vc.ws and not vc.ws.closed:
-                            await vc.ws.speak(False)
-                            last_keepalive[guild_id] = current_time
-                            logger.info(f"✓ Sent voice keepalive to {channel.name}")
-                        else:
-                            logger.debug(f"WebSocket became unhealthy for {channel.name}, skipping keepalive")
+                        # Send keepalive - the try-except will catch any connection issues
+                        await vc.ws.speak(False)
+                        last_keepalive[guild_id] = current_time
+                        logger.info(f"✓ Sent voice keepalive to {channel.name}")
                     except (ConnectionError, RuntimeError, OSError) as e:
                         # Handle connection-related errors gracefully
                         if "closing" in str(e).lower() or "closed" in str(e).lower():
