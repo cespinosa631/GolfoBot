@@ -577,23 +577,40 @@ async def start_voice_listening(vc):
             def __init__(self, vc_instance):
                 self.vc_instance = vc_instance
                 self.loop = asyncio.get_event_loop()
+                self.packet_count = 0
+                self.last_log_time = time.time()
+                logger.info(f"🎙️ CustomSink initialized for channel {vc_instance.channel.name}")
                 
             def wants_opus(self):
+                # Log every time this is called to confirm Discord is querying us
+                if not hasattr(self, '_wants_opus_called'):
+                    self._wants_opus_called = True
+                    logger.info(f"✅ Discord queried wants_opus() - returning False (want PCM)")
                 return False  # We want decoded PCM
                 
             def write(self, user, data):
-                # Forward to VoiceListener's packet handler in the event loop
-                if not hasattr(self, '_write_called'):
-                    self._write_called = True
-                    logger.info(f"🔊 CustomSink.write() called for first time - voice packets are flowing!")
+                # Enhanced logging - log every 25 packets (more frequent)
+                self.packet_count += 1
+                current_time = time.time()
+                
+                # Log first packet with high visibility
+                if self.packet_count == 1:
+                    logger.info(f"🔊🔊🔊 FIRST VOICE PACKET RECEIVED! User: {user.name if user else 'unknown'}")
+                    logger.info(f"📊 Packet data: {len(data.pcm if hasattr(data, 'pcm') else getattr(data, 'data', b''))} bytes")
+                
+                # Log every 25 packets or every 5 seconds
+                if self.packet_count % 25 == 0 or (current_time - self.last_log_time) > 5:
+                    logger.info(f"📦 Voice packets: {self.packet_count} total ({user.name if user else 'unknown'})")
+                    self.last_log_time = current_time
+                
+                # Forward to VoiceListener's packet handler
                 asyncio.run_coroutine_threadsafe(
                     self.vc_instance.on_voice_member_packet(user, data),
                     self.loop
                 )
                 
             def cleanup(self):
-                # Called when sink is stopped
-                pass
+                logger.info(f"🛑 CustomSink cleanup called, received {self.packet_count} total packets")
         
         # Check if Opus is loaded before starting
         try:
