@@ -1063,6 +1063,14 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         if guild_id:
             bot_is_speaking.discard(guild_id)
             logger.info(f"Bot finished speaking in guild {guild_id}, resuming voice listening")
+            
+            # CRITICAL: Restart voice listening since play() destroyed the sink
+            if isinstance(voice_client, VoiceListener):
+                try:
+                    await start_voice_listening(voice_client)
+                    logger.info(f"✅ Restarted voice listening after TTS in guild {guild_id}")
+                except Exception as e:
+                    logger.error(f"Failed to restart voice listening: {e}", exc_info=True)
 
         return True
     except Exception as e:
@@ -1071,6 +1079,14 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         if guild_id:
             bot_is_speaking.discard(guild_id)
             logger.info(f"Bot stopped speaking (error) in guild {guild_id}, resuming voice listening")
+            
+            # CRITICAL: Restart voice listening since play() destroyed the sink
+            if isinstance(voice_client, VoiceListener):
+                try:
+                    await start_voice_listening(voice_client)
+                    logger.info(f"✅ Restarted voice listening after TTS error in guild {guild_id}")
+                except Exception as restart_error:
+                    logger.error(f"Failed to restart voice listening: {restart_error}", exc_info=True)
         return False
 
 
