@@ -549,7 +549,7 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                         logger.warning(f"LLM endpoint returned {resp.status}")
                         
         except Exception as e:
-            logger.error(f"Error responding to speech: {e}")
+            logger.error(f"Error responding to speech: {e}", exc_info=True)
 
 
 async def start_voice_listening(vc):
