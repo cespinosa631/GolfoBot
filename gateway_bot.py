@@ -560,14 +560,10 @@ async def start_voice_listening(vc):
         
     guild_id = vc.guild.id
     
-    # Check if already listening with THIS specific voice client
-    if guild_id in voice_listeners and voice_listeners[guild_id].get('vc') == vc:
-        logger.info(f"Already listening in guild {guild_id} with this voice client")
-        return
-    
-    # If switching to a new voice client in same guild, clean up old listener first
+    # Always clean up old listener state before creating new sink
+    # This is critical because discord.py's play() destroys sinks
     if guild_id in voice_listeners:
-        logger.info(f"Switching voice client in guild {guild_id}, cleaning up old listener")
+        logger.info(f"Cleaning up existing listener state in guild {guild_id} before restart")
         await stop_voice_listening(guild_id)
     
     # Start listening mode with a custom sink
