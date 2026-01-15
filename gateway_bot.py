@@ -197,6 +197,7 @@ conversation_context = {}  # guild_id -> list of recent speech [(username, text,
 last_voice_packet_time = {}  # guild_id -> timestamp of last voice packet received
 voice_reconnect_in_progress = set()  # guild_ids currently reconnecting
 bot_is_speaking = set()  # guild_ids where bot is currently playing TTS (pause listening)
+encoder_transitioning = set()  # guild_ids where encoder is transitioning (block keepalives)
 voice_reconnect_time = {}  # guild_id -> timestamp of last reconnection (to ignore stale packets)
 websocket_closing_since = {}  # guild_id -> timestamp when WebSocket first detected as closing
 
@@ -1063,6 +1064,15 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         voice_client.stop()
         logger.info(f"Explicitly stopped voice client to clear encoder state")
         
+        # CRITICAL: Also stop listening to detach any lingering sink immediately
+        # This gives maximum time for encoder to settle before we restart listening
+        if hasattr(voice_client, 'stop_listening'):
+            try:
+                voice_client.stop_listening()
+                logger.info(f"Detached sink immediately after TTS playback")
+            except Exception as e:
+                logger.debug(f"stop_listening() after playback raised: {e}")
+        
         # CRITICAL: Wait for encoder to complete state transition after stop()
         # The encoder needs time to fully clear its sending state before we can attach new sinks
         # Without this delay, the encoder is still transitioning when we try to restart listening
@@ -1090,6 +1100,10 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         # ALWAYS restart voice listening, even if there was an error
         # This runs regardless of success, failure, or early returns
         if guild_id:
+            # Set encoder_transitioning to block keepalives during the restart process
+            encoder_transitioning.add(guild_id)
+            # Clear bot_is_speaking BEFORE restart so packets can be processed immediately
+            bot_is_speaking.discard(guild_id)
             logger.info(f"Bot stopped speaking in guild {guild_id}, resuming voice listening")
             
             # CRITICAL: Wait briefly to ensure encoder has fully transitioned
@@ -1102,12 +1116,11 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                 try:
                     await start_voice_listening(voice_client)
                     logger.info(f"✅ Restarted voice listening after TTS in guild {guild_id}")
-                    # Only clear bot_is_speaking AFTER listening successfully restarted
-                    bot_is_speaking.discard(guild_id)
                 except Exception as restart_error:
                     logger.error(f"❌ Failed to restart voice listening: {restart_error}", exc_info=True)
-                    # Clear flag even on error to prevent indefinite blocking
-                    bot_is_speaking.discard(guild_id)
+                finally:
+                    # Clear encoder_transitioning flag after restart attempt completes
+                    encoder_transitioning.discard(guild_id)
 
 
 async def ensure_voice_connected(guild: discord.Guild):
@@ -1255,9 +1268,9 @@ async def voice_health_monitor():
                 # Send periodic keepalive by updating speaking state
                 last_ka = last_keepalive.get(guild_id, 0)
                 if current_time - last_ka > VOICE_KEEPALIVE_INTERVAL:
-                    # Skip keepalive if bot is currently speaking/transitioning
-                    if guild_id in bot_is_speaking:
-                        logger.debug(f"Skipping keepalive for {channel.name} - bot is speaking/transitioning")
+                    # Skip keepalive if encoder is transitioning (prevents interference with sink attachment)
+                    if guild_id in encoder_transitioning:
+                        logger.debug(f"Skipping keepalive for {channel.name} - encoder transitioning")
                         continue
                     try:
                         # Send keepalive - the try-except will catch any connection issues
