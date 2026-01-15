@@ -566,6 +566,19 @@ async def start_voice_listening(vc):
         logger.info(f"Cleaning up existing listener state in guild {guild_id} before restart")
         await stop_voice_listening(guild_id)
     
+    # CRITICAL: If voice client has stop_listening method, call it to properly detach any previous sinks
+    # This ensures the encoder is in a clean state before attaching a new sink
+    if hasattr(vc, 'stop_listening') and callable(vc.stop_listening):
+        try:
+            vc.stop_listening()
+            logger.info(f"Explicitly called stop_listening() to clear previous sink")
+        except Exception as e:
+            logger.debug(f"stop_listening() call raised exception (may not be actively listening): {e}")
+    
+    # Wait briefly for the encoder to fully transition to idle state
+    # This prevents the new sink from being destroyed immediately
+    await asyncio.sleep(0.3)
+    
     # Start listening mode with a custom sink
     try:
         # Create a simple sink that processes packets via on_voice_member_packet
@@ -1043,6 +1056,12 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         # Wait for playback to finish
         while voice_client.is_playing():
             await asyncio.sleep(0.2)
+        
+        # CRITICAL: Explicitly stop the voice client to clear the encoder state
+        # This ensures the encoder transitions from "sending" to "idle" mode
+        # Without this, the encoder remains in sending mode and destroys new sinks immediately
+        voice_client.stop()
+        logger.info(f"Explicitly stopped voice client to clear encoder state")
 
         try:
             # Remove intermediate files (original and processed if different)
@@ -1068,14 +1087,13 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             bot_is_speaking.discard(guild_id)
             logger.info(f"Bot stopped speaking in guild {guild_id}, resuming voice listening")
             
-            # CRITICAL: Wait for voice client to fully stabilize after play() before restarting sink
-            # Discord.py needs time to clean up internal state after playback ends
-            # Without this delay, the sink is destroyed immediately after creation
-            logger.info(f"Waiting 2 seconds for voice client to stabilize before restarting listening...")
-            await asyncio.sleep(2.0)
+            # CRITICAL: Wait briefly for voice client encoder to fully clear playback state
+            # The encoder needs time to transition from "sending" to "idle" mode
+            # 0.5s is sufficient for the encoder state transition
+            await asyncio.sleep(0.5)
             
             # CRITICAL: Restart voice listening since play() destroyed the sink
-            if isinstance(voice_client, VoiceListener):
+            if isinstance(voice_client, VoiceListener) and voice_client.is_connected():
                 try:
                     await start_voice_listening(voice_client)
                     logger.info(f"✅ Restarted voice listening after TTS in guild {guild_id}")
