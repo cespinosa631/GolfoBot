@@ -1068,6 +1068,10 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             bot_is_speaking.discard(guild_id)
             logger.info(f"Bot stopped speaking in guild {guild_id}, resuming voice listening")
             
+            # CRITICAL: Wait a moment for voice client to stabilize after play() before restarting sink
+            # This prevents the sink from being immediately destroyed
+            await asyncio.sleep(0.5)
+            
             # CRITICAL: Restart voice listening since play() destroyed the sink
             if isinstance(voice_client, VoiceListener):
                 try:
