@@ -1090,7 +1090,6 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         # ALWAYS restart voice listening, even if there was an error
         # This runs regardless of success, failure, or early returns
         if guild_id:
-            bot_is_speaking.discard(guild_id)
             logger.info(f"Bot stopped speaking in guild {guild_id}, resuming voice listening")
             
             # CRITICAL: Wait briefly to ensure encoder has fully transitioned
@@ -1103,8 +1102,12 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
                 try:
                     await start_voice_listening(voice_client)
                     logger.info(f"✅ Restarted voice listening after TTS in guild {guild_id}")
+                    # Only clear bot_is_speaking AFTER listening successfully restarted
+                    bot_is_speaking.discard(guild_id)
                 except Exception as restart_error:
                     logger.error(f"❌ Failed to restart voice listening: {restart_error}", exc_info=True)
+                    # Clear flag even on error to prevent indefinite blocking
+                    bot_is_speaking.discard(guild_id)
 
 
 async def ensure_voice_connected(guild: discord.Guild):
