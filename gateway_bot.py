@@ -1252,6 +1252,10 @@ async def voice_health_monitor():
                 # Send periodic keepalive by updating speaking state
                 last_ka = last_keepalive.get(guild_id, 0)
                 if current_time - last_ka > VOICE_KEEPALIVE_INTERVAL:
+                    # Skip keepalive if bot is currently speaking/transitioning
+                    if guild_id in bot_is_speaking:
+                        logger.debug(f"Skipping keepalive for {channel.name} - bot is speaking/transitioning")
+                        continue
                     try:
                         # Send keepalive - the try-except will catch any connection issues
                         await vc.ws.speak(False)
