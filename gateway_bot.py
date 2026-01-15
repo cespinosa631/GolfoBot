@@ -1265,6 +1265,19 @@ async def voice_health_monitor():
                     logger.debug(f"Skipping voice client with closed WebSocket in {channel.name}")
                     continue
                 
+                # Check if sink is missing and needs to be recreated
+                # This can happen if the sink gets destroyed by an error or exception
+                if isinstance(vc, VoiceListener) and guild_id in voice_listeners:
+                    # Check if vc has a sink attached
+                    has_sink = hasattr(vc, 'sink') and vc.sink is not None
+                    if not has_sink and guild_id not in bot_is_speaking and guild_id not in encoder_transitioning:
+                        logger.warning(f"⚠️ Sink missing for {channel.name}, recreating...")
+                        try:
+                            await start_voice_listening(vc)
+                            logger.info(f"✅ Recreated missing sink for {channel.name}")
+                        except Exception as sink_err:
+                            logger.error(f"Failed to recreate sink: {sink_err}")
+                
                 # Send periodic keepalive by updating speaking state
                 last_ka = last_keepalive.get(guild_id, 0)
                 if current_time - last_ka > VOICE_KEEPALIVE_INTERVAL:
