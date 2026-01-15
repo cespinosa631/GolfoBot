@@ -1062,6 +1062,12 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
         # Without this, the encoder remains in sending mode and destroys new sinks immediately
         voice_client.stop()
         logger.info(f"Explicitly stopped voice client to clear encoder state")
+        
+        # CRITICAL: Wait for encoder to complete state transition after stop()
+        # The encoder needs time to fully clear its sending state before we can attach new sinks
+        # Without this delay, the encoder is still transitioning when we try to restart listening
+        await asyncio.sleep(0.5)
+        logger.info(f"Waited for encoder state transition to complete")
 
         try:
             # Remove intermediate files (original and processed if different)
@@ -1087,10 +1093,10 @@ async def tts_play(voice_client: discord.VoiceClient, text: str, lang: str = 'es
             bot_is_speaking.discard(guild_id)
             logger.info(f"Bot stopped speaking in guild {guild_id}, resuming voice listening")
             
-            # CRITICAL: Wait briefly for voice client encoder to fully clear playback state
-            # The encoder needs time to transition from "sending" to "idle" mode
-            # 0.5s is sufficient for the encoder state transition
-            await asyncio.sleep(0.5)
+            # CRITICAL: Wait briefly to ensure encoder has fully transitioned
+            # If stop() was called successfully above, this is additional safety margin
+            # If there was an error, this gives the encoder time to reset
+            await asyncio.sleep(0.3)
             
             # CRITICAL: Restart voice listening since play() destroyed the sink
             if isinstance(voice_client, VoiceListener) and voice_client.is_connected():
