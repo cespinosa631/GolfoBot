@@ -942,11 +942,15 @@ def interactions():
                 import asyncio
                 from aoe3.interaction_handler import handle_aoe3_command
                 
-                # Run async handler
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # Run async handler in a way that allows background tasks
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # Don't close the loop - let background tasks complete
                 response = loop.run_until_complete(handle_aoe3_command(interaction_data))
-                loop.close()
                 
                 return jsonify(response)
             

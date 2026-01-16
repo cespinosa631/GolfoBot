@@ -103,10 +103,14 @@ async def handle_register(user_id: str, username: str, options: Dict, interactio
     
     # For long operations, defer the response and send a follow-up
     if interaction_data:
-        # Start background task to process registration
-        asyncio.create_task(_process_registration_background(
-            user_id, username, aoe3_username, interaction_data
-        ))
+        # Start background thread to process registration
+        import threading
+        thread = threading.Thread(
+            target=_run_registration_background,
+            args=(user_id, username, aoe3_username, interaction_data),
+            daemon=True
+        )
+        thread.start()
         
         # Return deferred response immediately
         return {
@@ -240,6 +244,25 @@ async def _process_registration_background(user_id: str, username: str, aoe3_use
                 })
         except:
             pass
+
+
+def _run_registration_background(user_id: str, username: str, aoe3_username: str, interaction_data: Dict):
+    """Thread wrapper to run async registration in background."""
+    import asyncio
+    
+    try:
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run the async function
+        loop.run_until_complete(_process_registration_background(
+            user_id, username, aoe3_username, interaction_data
+        ))
+        
+        loop.close()
+    except Exception as e:
+        logger.error(f"Error in registration thread: {e}", exc_info=True)
 
 
 async def handle_elo(user_id: str, options: Dict) -> Dict:
