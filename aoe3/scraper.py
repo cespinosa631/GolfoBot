@@ -55,9 +55,11 @@ class AoE3Scraper:
         try:
             # Search on Team Supremacy leaderboard (most common)
             leaderboard_url = f"{BASE_URL}/en/statistics/leaderboard/teamSupremacy"
+            logger.info(f"Searching for player '{username}' on Team Supremacy leaderboard")
             html = await self._get_page(leaderboard_url)
             
             if not html:
+                logger.warning("Failed to fetch Team Supremacy leaderboard")
                 return None
             
             soup = BeautifulSoup(html, 'lxml')
@@ -68,6 +70,12 @@ class AoE3Scraper:
             
             # Find all player links in the table
             player_links = soup.find_all('a', href=re.compile(r'/en/players/\d+/'))
+            logger.info(f"Found {len(player_links)} player links on Team Supremacy leaderboard")
+            
+            # Log first few player names for debugging
+            if player_links:
+                sample_names = [link.get_text(strip=True) for link in player_links[:10]]
+                logger.info(f"Sample player names: {sample_names}")
             
             for link in player_links:
                 player_name = link.get_text(strip=True)
@@ -90,11 +98,13 @@ class AoE3Scraper:
             
             # If not found in team supremacy, try 1v1
             leaderboard_url_1v1 = f"{BASE_URL}/en/statistics/leaderboard/1vs1"
+            logger.info(f"Player not found on Team Supremacy, trying 1v1 leaderboard")
             html = await self._get_page(leaderboard_url_1v1)
             
             if html:
                 soup = BeautifulSoup(html, 'lxml')
                 player_links = soup.find_all('a', href=re.compile(r'/en/players/\d+/'))
+                logger.info(f"Found {len(player_links)} player links on 1v1 leaderboard")
                 
                 for link in player_links:
                     player_name = link.get_text(strip=True)
@@ -119,6 +129,35 @@ class AoE3Scraper:
             
         except Exception as e:
             logger.error(f"Error searching for player {username}: {e}", exc_info=True)
+            return None
+    
+    async def get_player_by_id(self, player_id: str) -> Optional[Dict]:
+        """
+        Get player info directly by player ID without searching.
+        
+        Args:
+            player_id: The numerical player ID
+            
+        Returns:
+            Dict with keys: username, profile_url, player_id
+        """
+        try:
+            # Try to fetch the profile to verify it exists and get username
+            profile = await self.get_player_profile(player_id)
+            
+            if profile and profile.get('username'):
+                logger.info(f"Found player by ID {player_id}: {profile['username']}")
+                return {
+                    'username': profile['username'],
+                    'profile_url': f"{BASE_URL}/en/players/{player_id}/teamSupremacy",
+                    'player_id': player_id
+                }
+            
+            logger.warning(f"Could not verify player with ID: {player_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching player by ID {player_id}: {e}", exc_info=True)
             return None
     
     async def get_player_profile(self, player_id: str) -> Optional[Dict]:

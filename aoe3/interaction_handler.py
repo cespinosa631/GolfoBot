@@ -129,13 +129,22 @@ async def _process_registration(user_id: str, username: str, aoe3_username: str)
     # Search for player
     try:
         async with AoE3Scraper() as scraper:
-            player_data = await scraper.search_player(aoe3_username)
+            player_data = None
+            
+            # Check if input is a player ID (all digits)
+            if aoe3_username.isdigit():
+                logger.info(f"Input is numeric, treating as player ID: {aoe3_username}")
+                player_data = await scraper.get_player_by_id(aoe3_username)
+            else:
+                # Search by username
+                logger.info(f"Searching for player by username: {aoe3_username}")
+                player_data = await scraper.search_player(aoe3_username)
             
             if not player_data:
                 return {
                     "type": 4,
                     "data": {
-                        "content": f"❌ No se encontró el jugador `{aoe3_username}` en aoe3-homecity.com.\nVerifica que el nombre sea correcto.",
+                        "content": f"❌ No se encontró el jugador `{aoe3_username}` en aoe3-homecity.com.\n\nPuedes intentar con:\n• Tu ID de jugador (ej: `10204118`)\n• Verificar que tu nombre esté exactamente como aparece en el juego",
                         "flags": 64
                     }
                 }
