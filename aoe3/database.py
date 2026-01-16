@@ -99,16 +99,15 @@ class Player(Base):
     """Represents a Discord user registered for AoE3 tracking."""
     __tablename__ = 'players'
     
-    discord_id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    discord_id = Column(BigInteger, unique=True, nullable=False, index=True)
     discord_username = Column(String(255), nullable=False)
     aoe3_username = Column(String(255), nullable=False, unique=True)
-    aoe3_profile_url = Column(Text)
-    elo_1v1 = Column(Integer)
-    elo_team = Column(Integer)
-    favorite_civ = Column(String(100))
-    last_checked_at = Column(DateTime)
-    last_match_id = Column(String(255))
-    registered_at = Column(DateTime, default=datetime.utcnow)
+    aoe3_player_id = Column(String(50), index=True)
+    team_elo = Column(Integer)
+    solo_elo = Column(Integer)
+    last_updated = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     won_matches = relationship(
