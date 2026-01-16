@@ -391,10 +391,11 @@ async def get_player_by_aoe3_username(aoe3_username: str) -> Optional[Dict]:
 
 async def get_all_players() -> List[Dict]:
     """Get all registered players."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return []
     
-    async with AsyncSessionLocal() as session:
+    session = get_async_session()
+    try:
         result = await session.execute(select(Player))
         players = result.scalars().all()
         
@@ -416,7 +417,7 @@ async def update_player_elo(
     solo_elo: int = None
 ):
     """Update player ELO ratings."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return
     
     async with AsyncSessionLocal() as session:
@@ -446,7 +447,7 @@ async def add_match(
     played_at: datetime = None
 ) -> Dict:
     """Add a new match to database."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         raise RuntimeError("Database not configured")
     
     async with AsyncSessionLocal() as session:
@@ -479,7 +480,7 @@ async def add_match(
 
 async def match_exists(match_id: str) -> bool:
     """Check if a match has already been recorded."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return False
     
     async with AsyncSessionLocal() as session:
@@ -491,7 +492,7 @@ async def match_exists(match_id: str) -> bool:
 
 async def get_recent_matches(limit: int = 10) -> List[Match]:
     """Get recent matches, ordered by play date."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return []
     
     async with AsyncSessionLocal() as session:
@@ -505,7 +506,7 @@ async def get_recent_matches(limit: int = 10) -> List[Match]:
 
 async def get_player_matches(player_id: int, limit: int = 20) -> List[Dict]:
     """Get matches for a specific player."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return []
     
     async with AsyncSessionLocal() as session:
@@ -533,7 +534,7 @@ async def get_player_matches(player_id: int, limit: int = 20) -> List[Dict]:
 
 async def get_leaderboard(is_team: bool = False, limit: int = 10) -> List[Dict]:
     """Get ELO leaderboard."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return []
     
     async with AsyncSessionLocal() as session:
@@ -572,7 +573,7 @@ async def upsert_civilization(
     unique_buildings: List[str] = None
 ) -> Dict:
     """Create or update civilization data."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         raise RuntimeError("Database not configured")
     
     async with AsyncSessionLocal() as session:
@@ -618,7 +619,7 @@ async def upsert_civilization(
 
 async def get_civilization(name: str) -> Optional[Dict]:
     """Get civilization by name."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return None
     
     async with AsyncSessionLocal() as session:
@@ -640,7 +641,7 @@ async def get_civilization(name: str) -> Optional[Dict]:
 
 async def get_all_civilizations() -> List[Dict]:
     """Get all civilizations."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return []
     
     async with AsyncSessionLocal() as session:
@@ -662,7 +663,7 @@ async def add_strategy(
     description: str
 ) -> int:
     """Add a new community strategy."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         raise RuntimeError("Database not configured")
     
     async with AsyncSessionLocal() as session:
@@ -680,7 +681,7 @@ async def add_strategy(
 
 async def get_strategies(civilization: str = None, limit: int = 10) -> List[Dict]:
     """Get strategies, optionally filtered by civilization."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return []
     
     async with AsyncSessionLocal() as session:
@@ -719,7 +720,7 @@ async def get_strategies(civilization: str = None, limit: int = 10) -> List[Dict
 
 async def vote_strategy(strategy_id: int, voter_discord_id: int, vote_value: int) -> bool:
     """Vote on a strategy (1 for upvote, -1 for downvote)."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         return False
     
     if vote_value not in (-1, 1):
@@ -769,7 +770,7 @@ async def vote_strategy(strategy_id: int, voter_discord_id: int, vote_value: int
 
 async def get_session():
     """Get a database session (for use with FastAPI dependency injection, etc.)."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         raise RuntimeError("Database not configured")
     
     async with AsyncSessionLocal() as session:
