@@ -93,6 +93,9 @@ def get_async_session():
     )()
 
 
+# ==================== Models ====================
+
+class Player(Base):
     """Represents a Discord user registered for AoE3 tracking."""
     __tablename__ = 'players'
     
