@@ -76,14 +76,99 @@ async def handle_register(user_id: str, username: str, options: Dict) -> Dict:
     from .database import register_player, get_player_by_discord_id
     from .scraper import AoE3Scraper
     
-    # Defer response (Type 5 = DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE)
-    # We'll update it after scraping
-    return {
-        "type": 5,  # Acknowledge and show "thinking" state
-        "data": {
-            "flags": 0  # Public response
+    aoe3_username = options.get('username')
+    
+    if not aoe3_username:
+        return {
+            "type": 4,
+            "data": {
+                "content": "❌ Debes proporcionar tu nombre de usuario de AoE3.",
+                "flags": 64
+            }
         }
-    }
+    
+    # Check if already registered
+    existing = await get_player_by_discord_id(user_id)
+    if existing:
+        return {
+            "type": 4,
+            "data": {
+                "content": f"❌ Ya estás registrado con el usuario `{existing['aoe3_username']}`.\nPara cambiar tu usuario, contacta a un administrador.",
+                "flags": 64
+            }
+        }
+    
+    # Search for player
+    try:
+        async with AoE3Scraper() as scraper:
+            player_data = await scraper.search_player(aoe3_username)
+            
+            if not player_data:
+                return {
+                    "type": 4,
+                    "data": {
+                        "content": f"❌ No se encontró el jugador `{aoe3_username}` en aoe3-homecity.com.\nVerifica que el nombre sea correcto.",
+                        "flags": 64
+                    }
+                }
+            
+            # Fetch current ELO
+            profile = await scraper.get_player_profile(player_data['player_id'])
+            team_elo = profile.get('team_elo') if profile else None
+            solo_elo = profile.get('solo_elo') if profile else None
+        
+        # Register in database
+        await register_player(
+            discord_id=user_id,
+            discord_username=username,
+            aoe3_username=player_data['username'],
+            aoe3_player_id=player_data['player_id'],
+            team_elo=team_elo,
+            solo_elo=solo_elo
+        )
+        
+        # Build success embed
+        embed = {
+            "title": "✅ Registro Exitoso",
+            "description": f"Usuario **{player_data['username']}** registrado correctamente.",
+            "color": 0x2ecc71,
+            "fields": []
+        }
+        
+        if team_elo or solo_elo:
+            elo_text = []
+            if team_elo:
+                elo_text.append(f"**Equipo:** {team_elo}")
+            if solo_elo:
+                elo_text.append(f"**1v1:** {solo_elo}")
+            embed["fields"].append({
+                "name": "ELO Actual",
+                "value": " | ".join(elo_text),
+                "inline": False
+            })
+        
+        embed["fields"].append({
+            "name": "Seguimiento Automático",
+            "value": "Tu ELO se actualizará automáticamente cada 30 minutos.",
+            "inline": False
+        })
+        
+        return {
+            "type": 4,
+            "data": {
+                "embeds": [embed]
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error registering player: {e}", exc_info=True)
+        return {
+            "type": 4,
+            "data": {
+                "content": "❌ Error al registrar usuario. Intenta nuevamente más tarde.",
+                "flags": 64
+            }
+        }
 
 
 async def handle_elo(user_id: str, options: Dict) -> Dict:
