@@ -102,11 +102,13 @@ class Player(Base):
     discord_id = Column(BigInteger, primary_key=True)
     discord_username = Column(String(255), nullable=False)
     aoe3_username = Column(String(255), nullable=False, unique=True)
-    aoe3_player_id = Column(String(50), index=True)
-    team_elo = Column(Integer)
-    solo_elo = Column(Integer)
-    last_updated = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    aoe3_profile_url = Column(Text)
+    elo_1v1 = Column(Integer)
+    elo_team = Column(Integer)
+    favorite_civ = Column(String(100))
+    last_checked_at = Column(DateTime)
+    last_match_id = Column(String(100))
+    registered_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     won_matches = relationship(
@@ -277,9 +279,9 @@ async def register_player(
     discord_id: str, 
     discord_username: str, 
     aoe3_username: str, 
-    aoe3_player_id: str = None,
-    team_elo: int = None,
-    solo_elo: int = None
+    aoe3_profile_url: str = None,
+    elo_team: int = None,
+    elo_1v1: int = None
 ) -> Dict:
     """Register a new player or update existing player."""
     if not DATABASE_URL:
@@ -299,21 +301,23 @@ async def register_player(
             # Update existing player
             player.discord_username = discord_username
             player.aoe3_username = aoe3_username
-            if aoe3_player_id:
-                player.aoe3_player_id = aoe3_player_id
-            if team_elo is not None:
-                player.team_elo = team_elo
-            if solo_elo is not None:
-                player.solo_elo = solo_elo
+            if aoe3_profile_url:
+                player.aoe3_profile_url = aoe3_profile_url
+            if elo_team is not None:
+                player.elo_team = elo_team
+            if elo_1v1 is not None:
+                player.elo_1v1 = elo_1v1
+            player.last_checked_at = datetime.utcnow()
         else:
             # Create new player
             player = Player(
                 discord_id=int(discord_id),
                 discord_username=discord_username,
                 aoe3_username=aoe3_username,
-                aoe3_player_id=aoe3_player_id,
-                team_elo=team_elo,
-                solo_elo=solo_elo
+                aoe3_profile_url=aoe3_profile_url,
+                elo_team=elo_team,
+                elo_1v1=elo_1v1,
+                last_checked_at=datetime.utcnow()
             )
             session.add(player)
         
@@ -326,9 +330,9 @@ async def register_player(
             'discord_id': str(player.discord_id),
             'discord_username': player.discord_username,
             'aoe3_username': player.aoe3_username,
-            'aoe3_player_id': player.aoe3_player_id,
-            'team_elo': player.team_elo,
-            'solo_elo': player.solo_elo
+            'aoe3_profile_url': player.aoe3_profile_url,
+            'elo_team': player.elo_team,
+            'elo_1v1': player.elo_1v1
         }
     finally:
         await session.close()
@@ -353,10 +357,10 @@ async def get_player_by_discord_id(discord_id: str) -> Optional[Dict]:
             'discord_id': str(player.discord_id),
             'discord_username': player.discord_username,
             'aoe3_username': player.aoe3_username,
-            'aoe3_player_id': player.aoe3_player_id,
-            'team_elo': player.team_elo,
-            'solo_elo': player.solo_elo,
-            'last_updated': player.last_updated
+            'aoe3_profile_url': player.aoe3_profile_url,
+            'elo_team': player.elo_team,
+            'elo_1v1': player.elo_1v1,
+            'last_checked_at': player.last_checked_at
         }
     finally:
         await session.close()
@@ -381,10 +385,10 @@ async def get_player_by_aoe3_username(aoe3_username: str) -> Optional[Dict]:
             'discord_id': str(player.discord_id),
             'discord_username': player.discord_username,
             'aoe3_username': player.aoe3_username,
-            'aoe3_player_id': player.aoe3_player_id,
-            'team_elo': player.team_elo,
-            'solo_elo': player.solo_elo,
-            'last_updated': player.last_updated
+            'aoe3_profile_url': player.aoe3_profile_url,
+            'elo_team': player.elo_team,
+            'elo_1v1': player.elo_1v1,
+            'last_checked_at': player.last_checked_at
         }
     finally:
         await session.close()
@@ -404,17 +408,17 @@ async def get_all_players() -> List[Dict]:
             'discord_id': str(p.discord_id),
             'discord_username': p.discord_username,
             'aoe3_username': p.aoe3_username,
-            'aoe3_player_id': p.aoe3_player_id,
-            'team_elo': p.team_elo,
-            'solo_elo': p.solo_elo,
+            'aoe3_profile_url': p.aoe3_profile_url,
+            'elo_team': p.elo_team,
+            'elo_1v1': p.elo_1v1,
             'last_updated': p.last_updated
         } for p in players]
 
 
 async def update_player_elo(
     player_id: int, 
-    team_elo: int = None, 
-    solo_elo: int = None
+    elo_team: int = None, 
+    elo_1v1: int = None
 ):
     """Update player ELO ratings."""
     if not AsyncSessionLocal:
@@ -422,16 +426,16 @@ async def update_player_elo(
     
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(Player).where(Player.id == player_id)
+            select(Player).where(Player.discord_id == player_id)
         )
         player = result.scalar_one_or_none()
         
         if player:
-            if team_elo is not None:
-                player.team_elo = team_elo
-            if solo_elo is not None:
-                player.solo_elo = solo_elo
-            player.last_updated = datetime.utcnow()
+            if elo_team is not None:
+                player.elo_team = elo_team
+            if elo_1v1 is not None:
+                player.elo_1v1 = elo_1v1
+            player.last_checked_at = datetime.utcnow()
             await session.commit()
 
 
@@ -541,15 +545,15 @@ async def get_leaderboard(is_team: bool = False, limit: int = 10) -> List[Dict]:
         if is_team:
             result = await session.execute(
                 select(Player)
-                .where(Player.team_elo.isnot(None))
-                .order_by(Player.team_elo.desc())
+                .where(Player.elo_team.isnot(None))
+                .order_by(Player.elo_team.desc())
                 .limit(limit)
             )
         else:  # solo/1v1
             result = await session.execute(
                 select(Player)
-                .where(Player.solo_elo.isnot(None))
-                .order_by(Player.solo_elo.desc())
+                .where(Player.elo_1v1.isnot(None))
+                .order_by(Player.elo_1v1.desc())
                 .limit(limit)
             )
         players = result.scalars().all()
@@ -558,8 +562,8 @@ async def get_leaderboard(is_team: bool = False, limit: int = 10) -> List[Dict]:
             'id': p.id,
             'discord_id': str(p.discord_id),
             'aoe3_username': p.aoe3_username,
-            'team_elo': p.team_elo,
-            'solo_elo': p.solo_elo
+            'elo_team': p.elo_team,
+            'solo_elo': p.elo_1v1
         } for p in players]
 
 

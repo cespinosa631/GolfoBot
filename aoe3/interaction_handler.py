@@ -155,13 +155,14 @@ async def _process_registration(user_id: str, username: str, aoe3_username: str)
             solo_elo = profile.get('solo_elo') if profile else None
         
         # Register in database
+        profile_url = f"https://aoe3-homecity.com/en/players/{player_data['player_id']}/teamSupremacy"
         await register_player(
             discord_id=user_id,
             discord_username=username,
             aoe3_username=player_data['username'],
-            aoe3_player_id=player_data['player_id'],
-            team_elo=team_elo,
-            solo_elo=solo_elo
+            aoe3_profile_url=profile_url,
+            elo_team=team_elo,
+            elo_1v1=solo_elo
         )
         
         # Build success embed
@@ -325,17 +326,17 @@ async def handle_elo(user_id: str, options: Dict) -> Dict:
         "fields": []
     }
     
-    if player['team_elo'] or player['solo_elo']:
-        if player['team_elo']:
+    if player['elo_team'] or player['elo_1v1']:
+        if player['elo_team']:
             embed['fields'].append({
                 "name": "Equipo (Team)",
-                "value": str(player['team_elo']),
+                "value": str(player['elo_team']),
                 "inline": True
             })
-        if player['solo_elo']:
+        if player['elo_1v1']:
             embed['fields'].append({
                 "name": "1v1 (Solo)",
-                "value": str(player['solo_elo']),
+                "value": str(player['elo_1v1']),
                 "inline": True
             })
     else:
@@ -382,7 +383,7 @@ async def handle_leaderboard(options: Dict) -> Dict:
     
     for i, player in enumerate(players, 1):
         medal = medals[i-1] if i <= 3 else f"`{i}.`"
-        elo = player['team_elo'] if is_team else player['solo_elo']
+        elo = player['elo_team'] if is_team else player['elo_1v1']
         leaderboard_lines.append(f"{medal} **{player['aoe3_username']}** - {elo} ELO")
     
     embed = {

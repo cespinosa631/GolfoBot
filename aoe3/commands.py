@@ -73,13 +73,14 @@ class AoE3Commands(commands.Cog):
                 solo_elo = profile.get('solo_elo') if profile else None
             
             # Register in database
+            profile_url = f"https://aoe3-homecity.com/en/players/{player_data['player_id']}/teamSupremacy"
             await register_player(
                 discord_id=str(interaction.user.id),
                 discord_username=interaction.user.name,
                 aoe3_username=player_data['username'],
-                aoe3_player_id=player_data['player_id'],
-                team_elo=team_elo,
-                solo_elo=solo_elo
+                aoe3_profile_url=profile_url,
+                elo_team=team_elo,
+                elo_1v1=solo_elo
             )
             
             embed = discord.Embed(
@@ -152,12 +153,12 @@ class AoE3Commands(commands.Cog):
                 color=discord.Color.blue()
             )
             
-            if player['team_elo'] or player['solo_elo']:
+            if player['elo_team'] or player['elo_1v1']:
                 elo_lines = []
-                if player['team_elo']:
-                    elo_lines.append(f"**Equipo (Team):** {player['team_elo']}")
-                if player['solo_elo']:
-                    elo_lines.append(f"**1v1 (Solo):** {player['solo_elo']}")
+                if player['elo_team']:
+                    elo_lines.append(f"**Equipo (Team):** {player['elo_team']}")
+                if player['elo_1v1']:
+                    elo_lines.append(f"**1v1 (Solo):** {player['elo_1v1']}")
                 embed.description = "\n".join(elo_lines)
             else:
                 embed.description = "No hay datos de ELO disponibles."
@@ -220,7 +221,7 @@ class AoE3Commands(commands.Cog):
             
             for i, player in enumerate(players, 1):
                 medal = medals[i-1] if i <= 3 else f"`{i}.`"
-                elo = player['team_elo'] if is_team else player['solo_elo']
+                elo = player['elo_team'] if is_team else player['elo_1v1']
                 leaderboard_lines.append(f"{medal} **{player['aoe3_username']}** - {elo} ELO")
             
             embed.description = "\n".join(leaderboard_lines)
