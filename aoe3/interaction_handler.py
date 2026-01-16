@@ -214,8 +214,12 @@ async def _process_registration_background(user_id: str, username: str, aoe3_use
     import os
     
     try:
+        logger.info(f"Starting background registration for {username} (ID: {user_id})")
+        
         # Process registration
         result = await _process_registration(user_id, username, aoe3_username)
+        
+        logger.info(f"Registration processing complete, result type: {result.get('type')}")
         
         # Send follow-up via webhook
         app_id = interaction_data.get('application_id')
@@ -230,10 +234,13 @@ async def _process_registration_background(user_id: str, username: str, aoe3_use
         # Extract the response data
         response_data = result.get('data', {})
         
+        logger.info(f"Sending follow-up to webhook: {webhook_url[:50]}...")
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(webhook_url, json=response_data) as response:
+                response_text = await response.text()
                 if response.status not in (200, 204):
-                    logger.error(f"Failed to send follow-up: HTTP {response.status}")
+                    logger.error(f"Failed to send follow-up: HTTP {response.status}, Response: {response_text}")
                 else:
                     logger.info("Successfully sent registration follow-up")
     
@@ -246,13 +253,15 @@ async def _process_registration_background(user_id: str, username: str, aoe3_use
             interaction_token = interaction_data.get('token')
             webhook_url = f"https://discord.com/api/v10/webhooks/{app_id}/{interaction_token}"
             
+            error_msg = f"❌ Error al procesar el registro: {str(e)[:100]}"
+            
             async with aiohttp.ClientSession() as session:
                 await session.post(webhook_url, json={
-                    "content": "❌ Error al procesar el registro. Intenta nuevamente.",
+                    "content": error_msg,
                     "flags": 64
                 })
-        except:
-            pass
+        except Exception as e2:
+            logger.error(f"Failed to send error message: {e2}", exc_info=True)
 
 
 def _run_registration_background(user_id: str, username: str, aoe3_username: str, interaction_data: Dict):
