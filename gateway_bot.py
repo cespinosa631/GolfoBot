@@ -41,7 +41,7 @@ print("=" * 80, flush=True)
 
 import discord
 from discord import Intents, FFmpegPCMAudio
-from discord.ext import voice_recv
+from discord.ext import voice_recv, commands
 import shutil
 import subprocess
 from aiohttp import web
@@ -179,8 +179,9 @@ intents.members = True
 intents.guilds = True
 intents.voice_states = True
 
-# Increase gateway timeout to prevent disconnections
-client = discord.Client(
+# Create bot instance with slash command support
+client = commands.Bot(
+    command_prefix='!',  # Prefix for text commands (not used, but required)
     intents=intents,
     heartbeat_timeout=90.0,  # Increase from default 60s
     guild_ready_timeout=10.0  # Increase from default 2s
@@ -1400,8 +1401,37 @@ async def on_ready():
         await init_db()
         logger.info("✅ AoE3 database tables created/verified successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize AoE3 database: {e}")
+        logger.error(f"❌ Failed to initialize AoE3 database: {e}", exc_info=True)
         logger.warning("⚠️ AoE3 features will be disabled")
+        logger.warning("⚠️ To enable: Add PostgreSQL plugin in Railway and set DATABASE_URL")
+    
+    # Load AoE3 commands
+    try:
+        from aoe3.commands import setup
+        await setup(client)
+        logger.info("✅ AoE3 slash commands loaded")
+    except Exception as e:
+        logger.error(f"❌ Failed to load AoE3 commands: {e}", exc_info=True)
+    
+    # Sync slash commands with Discord
+    try:
+        logger.info("🔄 Syncing slash commands with Discord...")
+        synced = await client.tree.sync()
+        logger.info(f"✅ Synced {len(synced)} slash command(s) with Discord")
+        for cmd in synced:
+            logger.info(f"  - /{cmd.name}: {cmd.description}")
+    except Exception as e:
+        logger.error(f"❌ Failed to sync slash commands: {e}", exc_info=True)
+        logger.error("⚠️ IMPORTANT: Check Discord Developer Portal -> Your App -> General Information")
+        logger.error("⚠️ Make sure 'INTERACTIONS ENDPOINT URL' is EMPTY (not set)")
+    
+    # Start AoE3 background tasks
+    try:
+        from aoe3.tasks import setup_tasks
+        match_checker, elo_updater = setup_tasks(client)
+        logger.info("✅ AoE3 background tasks started (match checking, ELO updates)")
+    except Exception as e:
+        logger.error(f"❌ Failed to start AoE3 background tasks: {e}")
     
     # Log Opus status with EXTRA visibility
     print("=" * 80, flush=True)

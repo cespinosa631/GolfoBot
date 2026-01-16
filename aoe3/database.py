@@ -240,11 +240,13 @@ async def init_db():
 # ==================== Database Operations ====================
 
 async def register_player(
-    discord_id: int, 
+    discord_id: str, 
     discord_username: str, 
     aoe3_username: str, 
-    profile_url: str = None
-) -> Player:
+    aoe3_player_id: str = None,
+    team_elo: int = None,
+    solo_elo: int = None
+) -> Dict:
     """Register a new player or update existing player."""
     if not AsyncSessionLocal:
         raise RuntimeError("Database not configured")
@@ -252,7 +254,7 @@ async def register_player(
     async with AsyncSessionLocal() as session:
         # Check if player already exists
         result = await session.execute(
-            select(Player).where(Player.discord_id == discord_id)
+            select(Player).where(Player.discord_id == int(discord_id))
         )
         player = result.scalar_one_or_none()
         
@@ -260,36 +262,65 @@ async def register_player(
             # Update existing player
             player.discord_username = discord_username
             player.aoe3_username = aoe3_username
-            if profile_url:
-                player.aoe3_profile_url = profile_url
+            if aoe3_player_id:
+                player.aoe3_player_id = aoe3_player_id
+            if team_elo is not None:
+                player.team_elo = team_elo
+            if solo_elo is not None:
+                player.solo_elo = solo_elo
         else:
             # Create new player
             player = Player(
-                discord_id=discord_id,
+                discord_id=int(discord_id),
                 discord_username=discord_username,
                 aoe3_username=aoe3_username,
-                aoe3_profile_url=profile_url or f"https://aoe3-homecity.com/player/{aoe3_username}"
+                aoe3_player_id=aoe3_player_id,
+                team_elo=team_elo,
+                solo_elo=solo_elo
             )
             session.add(player)
         
         await session.commit()
         await session.refresh(player)
-        return player
+        
+        # Return as dict for easier use
+        return {
+            'id': player.id,
+            'discord_id': str(player.discord_id),
+            'discord_username': player.discord_username,
+            'aoe3_username': player.aoe3_username,
+            'aoe3_player_id': player.aoe3_player_id,
+            'team_elo': player.team_elo,
+            'solo_elo': player.solo_elo
+        }
 
 
-async def get_player_by_discord_id(discord_id: int) -> Optional[Player]:
+async def get_player_by_discord_id(discord_id: str) -> Optional[Dict]:
     """Get player by Discord ID."""
     if not AsyncSessionLocal:
         return None
     
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(Player).where(Player.discord_id == discord_id)
+            select(Player).where(Player.discord_id == int(discord_id))
         )
-        return result.scalar_one_or_none()
+        player = result.scalar_one_or_none()
+        if not player:
+            return None
+        
+        return {
+            'id': player.id,
+            'discord_id': str(player.discord_id),
+            'discord_username': player.discord_username,
+            'aoe3_username': player.aoe3_username,
+            'aoe3_player_id': player.aoe3_player_id,
+            'team_elo': player.team_elo,
+            'solo_elo': player.solo_elo,
+            'last_updated': player.last_updated
+        }
 
 
-async def get_player_by_aoe3_username(aoe3_username: str) -> Optional[Player]:
+async def get_player_by_aoe3_username(aoe3_username: str) -> Optional[Dict]:
     """Get player by AoE3 username."""
     if not AsyncSessionLocal:
         return None
@@ -298,57 +329,108 @@ async def get_player_by_aoe3_username(aoe3_username: str) -> Optional[Player]:
         result = await session.execute(
             select(Player).where(Player.aoe3_username == aoe3_username)
         )
-        return result.scalar_one_or_none()
+        player = result.scalar_one_or_none()
+        if not player:
+            return None
+        
+        return {
+            'id': player.id,
+            'discord_id': str(player.discord_id),
+            'discord_username': player.discord_username,
+            'aoe3_username': player.aoe3_username,
+            'aoe3_player_id': player.aoe3_player_id,
+            'team_elo': player.team_elo,
+            'solo_elo': player.solo_elo,
+            'last_updated': player.last_updated
+        }
 
 
-async def get_all_players() -> List[Player]:
+async def get_all_players() -> List[Dict]:
     """Get all registered players."""
     if not AsyncSessionLocal:
         return []
     
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Player))
-        return result.scalars().all()
+        players = result.scalars().all()
+        
+        return [{
+            'id': p.id,
+            'discord_id': str(p.discord_id),
+            'discord_username': p.discord_username,
+            'aoe3_username': p.aoe3_username,
+            'aoe3_player_id': p.aoe3_player_id,
+            'team_elo': p.team_elo,
+            'solo_elo': p.solo_elo,
+            'last_updated': p.last_updated
+        } for p in players]
 
 
 async def update_player_elo(
-    discord_id: int, 
-    elo_1v1: int = None, 
-    elo_team: int = None,
-    favorite_civ: str = None
+    player_id: int, 
+    team_elo: int = None, 
+    solo_elo: int = None
 ):
-    """Update player ELO ratings and stats."""
+    """Update player ELO ratings."""
     if not AsyncSessionLocal:
         return
     
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(Player).where(Player.discord_id == discord_id)
+            select(Player).where(Player.id == player_id)
         )
         player = result.scalar_one_or_none()
         
         if player:
-            if elo_1v1 is not None:
-                player.elo_1v1 = elo_1v1
-            if elo_team is not None:
-                player.elo_team = elo_team
-            if favorite_civ is not None:
-                player.favorite_civ = favorite_civ
-            player.last_checked_at = datetime.utcnow()
+            if team_elo is not None:
+                player.team_elo = team_elo
+            if solo_elo is not None:
+                player.solo_elo = solo_elo
+            player.last_updated = datetime.utcnow()
             await session.commit()
 
 
-async def add_match(match_data: Dict[str, Any]) -> Match:
+async def add_match(
+    match_id: str,
+    player_id: int,
+    opponent_username: str = None,
+    player_civilization: str = None,
+    opponent_civilization: str = None,
+    result: str = None,
+    game_mode: str = 'Supremacía',
+    map_name: str = None,
+    played_at: datetime = None
+) -> Dict:
     """Add a new match to database."""
     if not AsyncSessionLocal:
         raise RuntimeError("Database not configured")
     
     async with AsyncSessionLocal() as session:
-        match = Match(**match_data)
+        match = Match(
+            match_id=match_id,
+            player_id=player_id,
+            opponent_username=opponent_username,
+            player_civilization=player_civilization,
+            opponent_civilization=opponent_civilization,
+            result=result,
+            game_mode=game_mode,
+            map_name=map_name,
+            played_at=played_at or datetime.utcnow()
+        )
         session.add(match)
         await session.commit()
         await session.refresh(match)
-        return match
+        
+        return {
+            'id': match.id,
+            'match_id': match.match_id,
+            'player_id': match.player_id,
+            'opponent_username': match.opponent_username,
+            'result': match.result,
+            'game_mode': match.game_mode,
+            'map_name': match.map_name,
+            'played_at': match.played_at
+        }
 
 
 async def match_exists(match_id: str) -> bool:
@@ -377,7 +459,7 @@ async def get_recent_matches(limit: int = 10) -> List[Match]:
         return result.scalars().all()
 
 
-async def get_player_matches(discord_id: int, limit: int = 20) -> List[Match]:
+async def get_player_matches(player_id: int, limit: int = 20) -> List[Dict]:
     """Get matches for a specific player."""
     if not AsyncSessionLocal:
         return []
@@ -385,42 +467,66 @@ async def get_player_matches(discord_id: int, limit: int = 20) -> List[Match]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Match)
-            .where(
-                (Match.winner_discord_id == discord_id) | 
-                (Match.loser_discord_id == discord_id)
-            )
+            .where(Match.player_id == player_id)
             .order_by(Match.played_at.desc())
             .limit(limit)
         )
-        return result.scalars().all()
+        matches = result.scalars().all()
+        
+        return [{
+            'id': m.id,
+            'match_id': m.match_id,
+            'player_id': m.player_id,
+            'opponent_username': m.opponent_username,
+            'player_civilization': m.player_civilization,
+            'opponent_civilization': m.opponent_civilization,
+            'result': m.result,
+            'game_mode': m.game_mode,
+            'map_name': m.map_name,
+            'played_at': m.played_at
+        } for m in matches]
 
 
-async def get_leaderboard(elo_type: str = '1v1', limit: int = 10) -> List[Player]:
+async def get_leaderboard(is_team: bool = False, limit: int = 10) -> List[Dict]:
     """Get ELO leaderboard."""
     if not AsyncSessionLocal:
         return []
     
     async with AsyncSessionLocal() as session:
-        if elo_type == '1v1':
+        if is_team:
             result = await session.execute(
                 select(Player)
-                .where(Player.elo_1v1.isnot(None))
-                .order_by(Player.elo_1v1.desc())
+                .where(Player.team_elo.isnot(None))
+                .order_by(Player.team_elo.desc())
                 .limit(limit)
             )
-        else:  # team
+        else:  # solo/1v1
             result = await session.execute(
                 select(Player)
-                .where(Player.elo_team.isnot(None))
-                .order_by(Player.elo_team.desc())
+                .where(Player.solo_elo.isnot(None))
+                .order_by(Player.solo_elo.desc())
                 .limit(limit)
             )
-        return result.scalars().all()
+        players = result.scalars().all()
+        
+        return [{
+            'id': p.id,
+            'discord_id': str(p.discord_id),
+            'aoe3_username': p.aoe3_username,
+            'team_elo': p.team_elo,
+            'solo_elo': p.solo_elo
+        } for p in players]
 
 
 # ==================== Civilization Operations ====================
 
-async def upsert_civilization(civ_data: Dict[str, Any]) -> Civilization:
+async def upsert_civilization(
+    name: str,
+    description: str = None,
+    bonuses: List[str] = None,
+    unique_units: List[str] = None,
+    unique_buildings: List[str] = None
+) -> Dict:
     """Create or update civilization data."""
     if not AsyncSessionLocal:
         raise RuntimeError("Database not configured")
@@ -428,27 +534,45 @@ async def upsert_civilization(civ_data: Dict[str, Any]) -> Civilization:
     async with AsyncSessionLocal() as session:
         # Check if civ exists
         result = await session.execute(
-            select(Civilization).where(Civilization.name == civ_data['name'])
+            select(Civilization).where(Civilization.name == name)
         )
         civ = result.scalar_one_or_none()
         
         if civ:
             # Update existing
-            for key, value in civ_data.items():
-                if key != 'name':
-                    setattr(civ, key, value)
+            if description is not None:
+                civ.description = description
+            if bonuses is not None:
+                civ.bonuses = bonuses
+            if unique_units is not None:
+                civ.unique_units = unique_units
+            if unique_buildings is not None:
+                civ.unique_buildings = unique_buildings
             civ.last_updated = datetime.utcnow()
         else:
             # Create new
-            civ = Civilization(**civ_data)
+            civ = Civilization(
+                name=name,
+                description=description,
+                bonuses=bonuses or [],
+                unique_units=unique_units or [],
+                unique_buildings=unique_buildings or []
+            )
             session.add(civ)
         
         await session.commit()
         await session.refresh(civ)
-        return civ
+        
+        return {
+            'name': civ.name,
+            'description': civ.description,
+            'bonuses': civ.bonuses,
+            'unique_units': civ.unique_units,
+            'unique_buildings': civ.unique_buildings
+        }
 
 
-async def get_civilization(name: str) -> Optional[Civilization]:
+async def get_civilization(name: str) -> Optional[Dict]:
     """Get civilization by name."""
     if not AsyncSessionLocal:
         return None
@@ -457,61 +581,96 @@ async def get_civilization(name: str) -> Optional[Civilization]:
         result = await session.execute(
             select(Civilization).where(Civilization.name.ilike(f"%{name}%"))
         )
-        return result.scalar_one_or_none()
+        civ = result.scalar_one_or_none()
+        if not civ:
+            return None
+        
+        return {
+            'name': civ.name,
+            'description': civ.description,
+            'bonuses': civ.bonuses,
+            'unique_units': civ.unique_units,
+            'unique_buildings': civ.unique_buildings
+        }
 
 
-async def get_all_civilizations() -> List[Civilization]:
+async def get_all_civilizations() -> List[Dict]:
     """Get all civilizations."""
     if not AsyncSessionLocal:
         return []
     
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Civilization))
-        return result.scalars().all()
+        civs = result.scalars().all()
+        
+        return [{
+            'name': c.name,
+            'description': c.description
+        } for c in civs]
 
 
 # ==================== Strategy Operations ====================
 
 async def add_strategy(
-    civ: str,
-    strategy_text: str,
-    author_discord_id: int,
-    vs_civ: str = None,
-    map_name: str = None
-) -> Strategy:
+    player_id: int,
+    civilization: str,
+    title: str,
+    description: str
+) -> int:
     """Add a new community strategy."""
     if not AsyncSessionLocal:
         raise RuntimeError("Database not configured")
     
     async with AsyncSessionLocal() as session:
         strategy = Strategy(
-            civ=civ,
-            vs_civ=vs_civ,
-            map=map_name,
-            strategy_text=strategy_text,
-            author_discord_id=author_discord_id
+            player_id=player_id,
+            civilization=civilization,
+            title=title,
+            description=description
         )
         session.add(strategy)
         await session.commit()
         await session.refresh(strategy)
-        return strategy
+        return strategy.id
 
 
-async def get_strategies(civ: str, vs_civ: str = None, limit: int = 5) -> List[Strategy]:
-    """Get strategies for a civilization, ordered by votes."""
+async def get_strategies(civilization: str = None, limit: int = 10) -> List[Dict]:
+    """Get strategies, optionally filtered by civilization."""
     if not AsyncSessionLocal:
         return []
     
     async with AsyncSessionLocal() as session:
-        query = select(Strategy).where(Strategy.civ.ilike(f"%{civ}%"))
-        
-        if vs_civ:
-            query = query.where(Strategy.vs_civ.ilike(f"%{vs_civ}%"))
+        if civilization:
+            query = select(Strategy).where(Strategy.civilization.ilike(f"%{civilization}%"))
+        else:
+            query = select(Strategy)
         
         query = query.order_by(Strategy.votes.desc()).limit(limit)
         
         result = await session.execute(query)
-        return result.scalars().all()
+        strategies = result.scalars().all()
+        
+        # Get author usernames
+        strategy_list = []
+        for s in strategies:
+            # Get player info for author
+            player_result = await session.execute(
+                select(Player).where(Player.id == s.player_id)
+            )
+            player = player_result.scalar_one_or_none()
+            
+            strategy_list.append({
+                'id': s.id,
+                'civilization': s.civilization,
+                'title': s.title,
+                'description': s.description,
+                'votes': s.votes,
+                'vote_count': s.votes,  # Alias for compatibility
+                'author_username': player.discord_username if player else 'Unknown',
+                'created_at': s.created_at
+            })
+        
+        return strategy_list
 
 
 async def vote_strategy(strategy_id: int, voter_discord_id: int, vote_value: int) -> bool:
