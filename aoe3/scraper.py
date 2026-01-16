@@ -208,25 +208,16 @@ class AoE3Scraper:
                                 logger.info(f"Extracted username from span: {text}")
                                 break
                 
-                # Look for ELO - it appears as a standalone number after "Mode"
-                # Pattern in HTML: ...Mode...{number}ELO...
+                # Look for ELO - The pattern in the HTML is: {rank}ELO{actual_elo}
+                # Example: "1210ELO1409" where 1210 is rank display, 1409 is actual ELO
                 text = soup.get_text()
                 
-                # The ELO appears right after the player name and clan tag
-                # Look for pattern like "1207ELO" or "1207 ELO"
-                elo_match = re.search(r'(\d{3,4})\s*ELO', text)
+                # Find the pattern: number + "ELO" + number
+                elo_match = re.search(r'(\d{3,4})ELO(\d{3,4})', text)
                 if elo_match:
-                    profile_data['team_elo'] = int(elo_match.group(1))
+                    # The second number is the actual ELO rating
+                    profile_data['team_elo'] = int(elo_match.group(2))
                     logger.info(f"Found team ELO: {profile_data['team_elo']}")
-                else:
-                    # Alternative: look for numbers in reasonable ELO range near common keywords
-                    numbers = re.findall(r'\b(\d{3,4})\b', text)
-                    for num_str in numbers:
-                        num = int(num_str)
-                        if 800 <= num <= 4000:
-                            profile_data['team_elo'] = num
-                            logger.info(f"Found potential team ELO: {num}")
-                            break
             
             # Fetch 1v1 profile
             solo_url = f"{BASE_URL}/en/players/{player_id}/1vs1"
@@ -237,19 +228,11 @@ class AoE3Scraper:
                 soup = BeautifulSoup(solo_html, 'lxml')
                 text = soup.get_text()
                 
-                # Same pattern for 1v1 ELO
-                elo_match = re.search(r'(\d{3,4})\s*ELO', text)
+                # Same pattern for 1v1 ELO: {rank}ELO{actual_elo}
+                elo_match = re.search(r'(\d{3,4})ELO(\d{3,4})', text)
                 if elo_match:
-                    profile_data['solo_elo'] = int(elo_match.group(1))
+                    profile_data['solo_elo'] = int(elo_match.group(2))
                     logger.info(f"Found 1v1 ELO: {profile_data['solo_elo']}")
-                else:
-                    numbers = re.findall(r'\b(\d{3,4})\b', text)
-                    for num_str in numbers:
-                        num = int(num_str)
-                        if 800 <= num <= 4000:
-                            profile_data['solo_elo'] = num
-                            logger.info(f"Found potential 1v1 ELO: {num}")
-                            break
             
             logger.info(f"Fetched profile for player {player_id}: Team ELO={profile_data['team_elo']}, Solo ELO={profile_data['solo_elo']}")
             return profile_data

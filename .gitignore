@@ -42,3 +42,4 @@ piper_models/
 # Testing
 test_*.py
 test_db.py
+test_scraper_elo.py
