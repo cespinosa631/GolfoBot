@@ -15,8 +15,8 @@ from sqlalchemy import (
     create_engine, Column, Integer, String, BigInteger, Text, 
     Boolean, DateTime, ForeignKey, CheckConstraint, JSON, Index
 )
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.future import select
 import logging
 
@@ -48,7 +48,8 @@ else:
         max_overflow=10  # Extra connections beyond pool_size
     )
     
-    AsyncSessionLocal = async_sessionmaker(
+    # Use sessionmaker for SQLAlchemy 1.4 compatibility
+    AsyncSessionLocal = sessionmaker(
         engine, 
         class_=AsyncSession, 
         expire_on_commit=False
