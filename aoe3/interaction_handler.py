@@ -38,7 +38,7 @@ async def handle_aoe3_command(interaction_data: Dict[str, Any]) -> Dict[str, Any
         
         # Route to appropriate handler
         if command_name == 'aoe3_registro':
-            return await handle_register(user_id, username, options)
+            return await handle_register(user_id, username, options, interaction_data)
         elif command_name == 'aoe3_elo':
             return await handle_elo(user_id, options)
         elif command_name == 'aoe3_leaderboard':
@@ -71,10 +71,13 @@ async def handle_aoe3_command(interaction_data: Dict[str, Any]) -> Dict[str, Any
         }
 
 
-async def handle_register(user_id: str, username: str, options: Dict) -> Dict:
+async def handle_register(user_id: str, username: str, options: Dict, interaction_data: Dict = None) -> Dict:
     """Handle /aoe3_registro command."""
     from .database import register_player, get_player_by_discord_id
     from .scraper import AoE3Scraper
+    import aiohttp
+    import os
+    import asyncio
     
     aoe3_username = options.get('username')
     
@@ -97,6 +100,27 @@ async def handle_register(user_id: str, username: str, options: Dict) -> Dict:
                 "flags": 64
             }
         }
+    
+    # For long operations, defer the response and send a follow-up
+    if interaction_data:
+        # Start background task to process registration
+        asyncio.create_task(_process_registration_background(
+            user_id, username, aoe3_username, interaction_data
+        ))
+        
+        # Return deferred response immediately
+        return {
+            "type": 5  # DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+        }
+    
+    # Fallback: process synchronously (shouldn't normally reach here)
+    return await _process_registration(user_id, username, aoe3_username)
+
+
+async def _process_registration(user_id: str, username: str, aoe3_username: str) -> Dict:
+    """Process player registration."""
+    from .database import register_player
+    from .scraper import AoE3Scraper
     
     # Search for player
     try:
@@ -169,6 +193,53 @@ async def handle_register(user_id: str, username: str, options: Dict) -> Dict:
                 "flags": 64
             }
         }
+
+
+async def _process_registration_background(user_id: str, username: str, aoe3_username: str, interaction_data: Dict):
+    """Process registration in background and send follow-up webhook."""
+    import aiohttp
+    import os
+    
+    try:
+        # Process registration
+        result = await _process_registration(user_id, username, aoe3_username)
+        
+        # Send follow-up via webhook
+        app_id = interaction_data.get('application_id')
+        interaction_token = interaction_data.get('token')
+        
+        if not app_id or not interaction_token:
+            logger.error("Missing application_id or token for follow-up")
+            return
+        
+        webhook_url = f"https://discord.com/api/v10/webhooks/{app_id}/{interaction_token}"
+        
+        # Extract the response data
+        response_data = result.get('data', {})
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(webhook_url, json=response_data) as response:
+                if response.status not in (200, 204):
+                    logger.error(f"Failed to send follow-up: HTTP {response.status}")
+                else:
+                    logger.info("Successfully sent registration follow-up")
+    
+    except Exception as e:
+        logger.error(f"Error in background registration: {e}", exc_info=True)
+        
+        # Try to send error message
+        try:
+            app_id = interaction_data.get('application_id')
+            interaction_token = interaction_data.get('token')
+            webhook_url = f"https://discord.com/api/v10/webhooks/{app_id}/{interaction_token}"
+            
+            async with aiohttp.ClientSession() as session:
+                await session.post(webhook_url, json={
+                    "content": "❌ Error al procesar el registro. Intenta nuevamente.",
+                    "flags": 64
+                })
+        except:
+            pass
 
 
 async def handle_elo(user_id: str, options: Dict) -> Dict:
