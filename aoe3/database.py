@@ -99,8 +99,7 @@ class Player(Base):
     """Represents a Discord user registered for AoE3 tracking."""
     __tablename__ = 'players'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    discord_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    discord_id = Column(BigInteger, primary_key=True)
     discord_username = Column(String(255), nullable=False)
     aoe3_username = Column(String(255), nullable=False, unique=True)
     aoe3_player_id = Column(String(50), index=True)
@@ -323,7 +322,7 @@ async def register_player(
         
         # Return as dict for easier use
         return {
-            'id': player.id,
+            'id': player.discord_id,
             'discord_id': str(player.discord_id),
             'discord_username': player.discord_username,
             'aoe3_username': player.aoe3_username,
@@ -350,7 +349,7 @@ async def get_player_by_discord_id(discord_id: str) -> Optional[Dict]:
             return None
         
         return {
-            'id': player.id,
+            'id': player.discord_id,
             'discord_id': str(player.discord_id),
             'discord_username': player.discord_username,
             'aoe3_username': player.aoe3_username,
@@ -378,7 +377,7 @@ async def get_player_by_aoe3_username(aoe3_username: str) -> Optional[Dict]:
             return None
         
         return {
-            'id': player.id,
+            'id': player.discord_id,
             'discord_id': str(player.discord_id),
             'discord_username': player.discord_username,
             'aoe3_username': player.aoe3_username,
