@@ -1393,6 +1393,16 @@ async def on_ready():
     logger.info(f'Logged in as {client.user} (ID: {client.user.id})')
     logger.info('Gateway bot ready and listening for messages')
     
+    # Initialize AoE3 database
+    try:
+        from aoe3.database import init_db
+        logger.info("🗄️ Initializing AoE3 database...")
+        await init_db()
+        logger.info("✅ AoE3 database tables created/verified successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize AoE3 database: {e}")
+        logger.warning("⚠️ AoE3 features will be disabled")
+    
     # Log Opus status with EXTRA visibility
     print("=" * 80, flush=True)
     print("🔍 CHECKING OPUS LIBRARY STATUS...", flush=True)
