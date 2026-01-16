@@ -930,6 +930,36 @@ def interactions():
             logger.info("Received verification ping from Discord")
             return jsonify({"type": 1})
         
+        # Type 2: Application Command (slash commands)
+        if interaction_type == 2:
+            data = interaction_data.get('data', {})
+            command_name = data.get('name', '')
+            
+            # Check if it's an AoE3 command
+            if command_name.startswith('aoe3_'):
+                logger.info(f"Received AoE3 slash command: /{command_name}")
+                # Import and handle asynchronously
+                import asyncio
+                from aoe3.interaction_handler import handle_aoe3_command
+                
+                # Run async handler
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                response = loop.run_until_complete(handle_aoe3_command(interaction_data))
+                loop.close()
+                
+                return jsonify(response)
+            
+            # Unknown command
+            logger.warning(f"Unknown slash command: /{command_name}")
+            return jsonify({
+                "type": 4,
+                "data": {
+                    "content": f"❌ Comando desconocido: {command_name}",
+                    "flags": 64
+                }
+            })
+        
         # Type 3: Message Component (buttons)
         if interaction_type == 3:
             custom_id = interaction_data['data']['custom_id']
