@@ -41,3 +41,4 @@ piper_models/
 
 # Testing
 test_*.py
+test_db.py
