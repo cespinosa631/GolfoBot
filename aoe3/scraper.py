@@ -180,73 +180,76 @@ class AoE3Scraper:
             
             # Fetch Team Supremacy profile
             team_url = f"{BASE_URL}/en/players/{player_id}/teamSupremacy"
+            logger.info(f"Fetching team profile: {team_url}")
             team_html = await self._get_page(team_url)
             
             if team_html:
                 soup = BeautifulSoup(team_html, 'lxml')
                 
-                # Try to extract username from page title or header
+                # Extract username from page title
+                # Title format: "Profile (Username) | Supremacy (Team) | AOE 3 Home City"
                 title = soup.find('title')
                 if title:
-                    # Title format might be like "Player Name - AoE3 Home City"
                     title_text = title.get_text()
-                    if ' - ' in title_text:
-                        profile_data['username'] = title_text.split(' - ')[0].strip()
+                    logger.info(f"Page title: {title_text}")
+                    
+                    # Extract username from between parentheses
+                    match = re.search(r'Profile \((.+?)\)', title_text)
+                    if match:
+                        profile_data['username'] = match.group(1).strip()
+                        logger.info(f"Extracted username: {profile_data['username']}")
+                    else:
+                        # Fallback: try to find span with player name
+                        spans = soup.find_all('span', limit=50)
+                        for span in spans:
+                            text = span.get_text(strip=True)
+                            if text and len(text) > 3 and len(text) < 50 and not text.isdigit():
+                                profile_data['username'] = text
+                                logger.info(f"Extracted username from span: {text}")
+                                break
                 
-                # Look for ELO in the page - it's usually displayed prominently
-                # Try to find numbers that look like ELO ratings (typically 1000-3000)
+                # Look for ELO - it appears as a standalone number after "Mode"
+                # Pattern in HTML: ...Mode...{number}ELO...
                 text = soup.get_text()
                 
-                # Search for ELO value - usually appears near "ELO" or as a large number
-                elo_patterns = [
-                    r'ELO[:\s]+(\d{3,4})',
-                    r'Rating[:\s]+(\d{3,4})',
-                    r'(\d{3,4})\s+ELO'
-                ]
-                
-                for pattern in elo_patterns:
-                    match = re.search(pattern, text, re.IGNORECASE)
-                    if match:
-                        profile_data['team_elo'] = int(match.group(1))
-                        break
-                
-                # If not found, look in table cells or divs with ELO class
-                if not profile_data['team_elo']:
-                    # Try finding in structured data
-                    elo_elements = soup.find_all(['td', 'div', 'span'], text=re.compile(r'\d{3,4}'))
-                    for elem in elo_elements:
-                        try:
-                            num = int(re.search(r'\d{3,4}', elem.get_text()).group())
-                            if 800 <= num <= 4000:  # Reasonable ELO range
-                                profile_data['team_elo'] = num
-                                break
-                        except:
-                            continue
+                # The ELO appears right after the player name and clan tag
+                # Look for pattern like "1207ELO" or "1207 ELO"
+                elo_match = re.search(r'(\d{3,4})\s*ELO', text)
+                if elo_match:
+                    profile_data['team_elo'] = int(elo_match.group(1))
+                    logger.info(f"Found team ELO: {profile_data['team_elo']}")
+                else:
+                    # Alternative: look for numbers in reasonable ELO range near common keywords
+                    numbers = re.findall(r'\b(\d{3,4})\b', text)
+                    for num_str in numbers:
+                        num = int(num_str)
+                        if 800 <= num <= 4000:
+                            profile_data['team_elo'] = num
+                            logger.info(f"Found potential team ELO: {num}")
+                            break
             
             # Fetch 1v1 profile
             solo_url = f"{BASE_URL}/en/players/{player_id}/1vs1"
+            logger.info(f"Fetching 1v1 profile: {solo_url}")
             solo_html = await self._get_page(solo_url)
             
             if solo_html:
                 soup = BeautifulSoup(solo_html, 'lxml')
                 text = soup.get_text()
                 
-                for pattern in [r'ELO[:\s]+(\d{3,4})', r'Rating[:\s]+(\d{3,4})', r'(\d{3,4})\s+ELO']:
-                    match = re.search(pattern, text, re.IGNORECASE)
-                    if match:
-                        profile_data['solo_elo'] = int(match.group(1))
-                        break
-                
-                if not profile_data['solo_elo']:
-                    elo_elements = soup.find_all(['td', 'div', 'span'], text=re.compile(r'\d{3,4}'))
-                    for elem in elo_elements:
-                        try:
-                            num = int(re.search(r'\d{3,4}', elem.get_text()).group())
-                            if 800 <= num <= 4000:
-                                profile_data['solo_elo'] = num
-                                break
-                        except:
-                            continue
+                # Same pattern for 1v1 ELO
+                elo_match = re.search(r'(\d{3,4})\s*ELO', text)
+                if elo_match:
+                    profile_data['solo_elo'] = int(elo_match.group(1))
+                    logger.info(f"Found 1v1 ELO: {profile_data['solo_elo']}")
+                else:
+                    numbers = re.findall(r'\b(\d{3,4})\b', text)
+                    for num_str in numbers:
+                        num = int(num_str)
+                        if 800 <= num <= 4000:
+                            profile_data['solo_elo'] = num
+                            logger.info(f"Found potential 1v1 ELO: {num}")
+                            break
             
             logger.info(f"Fetched profile for player {player_id}: Team ELO={profile_data['team_elo']}, Solo ELO={profile_data['solo_elo']}")
             return profile_data
