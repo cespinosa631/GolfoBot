@@ -47,48 +47,78 @@ class AoE3Scraper:
     
     async def search_player(self, username: str) -> Optional[Dict]:
         """
-        Search for a player by username and return their profile URL and basic info.
+        Search for a player by username on the leaderboard and return their info.
         
         Returns:
             Dict with keys: username, profile_url, player_id
         """
         try:
-            search_url = f"{BASE_URL}/search?query={username}"
-            html = await self._get_page(search_url)
+            # Search on Team Supremacy leaderboard (most common)
+            leaderboard_url = f"{BASE_URL}/en/statistics/leaderboard/teamSupremacy"
+            html = await self._get_page(leaderboard_url)
             
             if not html:
                 return None
             
             soup = BeautifulSoup(html, 'lxml')
             
-            # Look for player links in search results
-            # The exact selectors will depend on the website structure
-            # This is a generic approach that looks for player profile links
-            player_links = soup.find_all('a', href=re.compile(r'/player/\d+'))
+            # The leaderboard has player links - look for username match
+            # Player links are in format: /en/players/{id}/teamSupremacy
+            username_lower = username.lower()
             
-            if not player_links:
-                logger.info(f"No player found for username: {username}")
-                return None
+            # Find all player links in the table
+            player_links = soup.find_all('a', href=re.compile(r'/en/players/\d+/'))
             
-            # Get the first match
-            first_link = player_links[0]
-            profile_url = BASE_URL + first_link['href']
+            for link in player_links:
+                player_name = link.get_text(strip=True)
+                if player_name.lower() == username_lower or username_lower in player_name.lower():
+                    # Extract player ID from href
+                    href = link['href']
+                    player_id_match = re.search(r'/players/(\d+)/', href)
+                    
+                    if player_id_match:
+                        player_id = player_id_match.group(1)
+                        profile_url = f"{BASE_URL}/en/players/{player_id}/teamSupremacy"
+                        
+                        logger.info(f"Found player: {player_name} (ID: {player_id})")
+                        
+                        return {
+                            'username': player_name,
+                            'profile_url': profile_url,
+                            'player_id': player_id
+                        }
             
-            # Extract player ID from URL
-            player_id_match = re.search(r'/player/(\d+)', first_link['href'])
-            player_id = player_id_match.group(1) if player_id_match else None
+            # If not found in team supremacy, try 1v1
+            leaderboard_url_1v1 = f"{BASE_URL}/en/statistics/leaderboard/1vs1"
+            html = await self._get_page(leaderboard_url_1v1)
             
-            # Try to get the displayed username
-            displayed_name = first_link.get_text(strip=True) or username
+            if html:
+                soup = BeautifulSoup(html, 'lxml')
+                player_links = soup.find_all('a', href=re.compile(r'/en/players/\d+/'))
+                
+                for link in player_links:
+                    player_name = link.get_text(strip=True)
+                    if player_name.lower() == username_lower or username_lower in player_name.lower():
+                        href = link['href']
+                        player_id_match = re.search(r'/players/(\d+)/', href)
+                        
+                        if player_id_match:
+                            player_id = player_id_match.group(1)
+                            profile_url = f"{BASE_URL}/en/players/{player_id}/1vs1"
+                            
+                            logger.info(f"Found player: {player_name} (ID: {player_id})")
+                            
+                            return {
+                                'username': player_name,
+                                'profile_url': profile_url,
+                                'player_id': player_id
+                            }
             
-            return {
-                'username': displayed_name,
-                'profile_url': profile_url,
-                'player_id': player_id
-            }
+            logger.info(f"No player found for username: {username}")
+            return None
             
         except Exception as e:
-            logger.error(f"Error searching for player {username}: {e}")
+            logger.error(f"Error searching for player {username}: {e}", exc_info=True)
             return None
     
     async def get_player_profile(self, player_id: str) -> Optional[Dict]:
@@ -99,16 +129,6 @@ class AoE3Scraper:
             Dict with keys: username, team_elo, solo_elo, level, games_played, wins, losses
         """
         try:
-            profile_url = f"{BASE_URL}/player/{player_id}"
-            html = await self._get_page(profile_url)
-            
-            if not html:
-                return None
-            
-            soup = BeautifulSoup(html, 'lxml')
-            
-            # Extract player information
-            # These selectors are generic and will need to be adjusted based on actual site structure
             profile_data = {
                 'username': None,
                 'team_elo': None,
@@ -119,49 +139,81 @@ class AoE3Scraper:
                 'losses': None
             }
             
-            # Try to find username
-            username_elem = soup.find('h1', class_=re.compile(r'player.*name', re.I))
-            if not username_elem:
-                username_elem = soup.find('h1')
-            if username_elem:
-                profile_data['username'] = username_elem.get_text(strip=True)
+            # Fetch Team Supremacy profile
+            team_url = f"{BASE_URL}/en/players/{player_id}/teamSupremacy"
+            team_html = await self._get_page(team_url)
             
-            # Look for ELO ratings
-            # Common patterns: "Team ELO: 1500", "1v1 Rating: 1200", etc.
-            text = soup.get_text()
+            if team_html:
+                soup = BeautifulSoup(team_html, 'lxml')
+                
+                # Try to extract username from page title or header
+                title = soup.find('title')
+                if title:
+                    # Title format might be like "Player Name - AoE3 Home City"
+                    title_text = title.get_text()
+                    if ' - ' in title_text:
+                        profile_data['username'] = title_text.split(' - ')[0].strip()
+                
+                # Look for ELO in the page - it's usually displayed prominently
+                # Try to find numbers that look like ELO ratings (typically 1000-3000)
+                text = soup.get_text()
+                
+                # Search for ELO value - usually appears near "ELO" or as a large number
+                elo_patterns = [
+                    r'ELO[:\s]+(\d{3,4})',
+                    r'Rating[:\s]+(\d{3,4})',
+                    r'(\d{3,4})\s+ELO'
+                ]
+                
+                for pattern in elo_patterns:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        profile_data['team_elo'] = int(match.group(1))
+                        break
+                
+                # If not found, look in table cells or divs with ELO class
+                if not profile_data['team_elo']:
+                    # Try finding in structured data
+                    elo_elements = soup.find_all(['td', 'div', 'span'], text=re.compile(r'\d{3,4}'))
+                    for elem in elo_elements:
+                        try:
+                            num = int(re.search(r'\d{3,4}', elem.get_text()).group())
+                            if 800 <= num <= 4000:  # Reasonable ELO range
+                                profile_data['team_elo'] = num
+                                break
+                        except:
+                            continue
             
-            # Team ELO
-            team_elo_match = re.search(r'(?:Team|Equipo|2v2|3v3|4v4).*?(?:ELO|Rating|Elo).*?(\d{3,4})', text, re.I)
-            if team_elo_match:
-                profile_data['team_elo'] = int(team_elo_match.group(1))
+            # Fetch 1v1 profile
+            solo_url = f"{BASE_URL}/en/players/{player_id}/1vs1"
+            solo_html = await self._get_page(solo_url)
             
-            # Solo/1v1 ELO
-            solo_elo_match = re.search(r'(?:1v1|Solo|Supreme).*?(?:ELO|Rating|Elo).*?(\d{3,4})', text, re.I)
-            if solo_elo_match:
-                profile_data['solo_elo'] = int(solo_elo_match.group(1))
+            if solo_html:
+                soup = BeautifulSoup(solo_html, 'lxml')
+                text = soup.get_text()
+                
+                for pattern in [r'ELO[:\s]+(\d{3,4})', r'Rating[:\s]+(\d{3,4})', r'(\d{3,4})\s+ELO']:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        profile_data['solo_elo'] = int(match.group(1))
+                        break
+                
+                if not profile_data['solo_elo']:
+                    elo_elements = soup.find_all(['td', 'div', 'span'], text=re.compile(r'\d{3,4}'))
+                    for elem in elo_elements:
+                        try:
+                            num = int(re.search(r'\d{3,4}', elem.get_text()).group())
+                            if 800 <= num <= 4000:
+                                profile_data['solo_elo'] = num
+                                break
+                        except:
+                            continue
             
-            # Level
-            level_match = re.search(r'(?:Level|Nivel).*?(\d+)', text, re.I)
-            if level_match:
-                profile_data['level'] = int(level_match.group(1))
-            
-            # Games, wins, losses
-            games_match = re.search(r'(?:Games|Partidas|Matches).*?(\d+)', text, re.I)
-            if games_match:
-                profile_data['games_played'] = int(games_match.group(1))
-            
-            wins_match = re.search(r'(?:Wins|Victorias).*?(\d+)', text, re.I)
-            if wins_match:
-                profile_data['wins'] = int(wins_match.group(1))
-            
-            losses_match = re.search(r'(?:Losses|Derrotas).*?(\d+)', text, re.I)
-            if losses_match:
-                profile_data['losses'] = int(losses_match.group(1))
-            
+            logger.info(f"Fetched profile for player {player_id}: Team ELO={profile_data['team_elo']}, Solo ELO={profile_data['solo_elo']}")
             return profile_data
             
         except Exception as e:
-            logger.error(f"Error fetching profile for player {player_id}: {e}")
+            logger.error(f"Error fetching profile for player {player_id}: {e}", exc_info=True)
             return None
     
     async def get_match_history(self, player_id: str, limit: int = 10) -> List[Dict]:
