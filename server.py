@@ -27,7 +27,7 @@ except Exception:
 
 # For Discord signature verification
 def verify_discord_signature(public_key, signature, timestamp, body):
-    """Verify Discord's request signature using Ed25519.
+    """Verify Discord's request signature using Ed25519
     
     Args:
         public_key: DISCORD_PUBLIC_KEY from env (hex string for Ed25519 public key)
