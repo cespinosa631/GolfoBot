@@ -63,9 +63,36 @@ else:
     Base = declarative_base()
 
 
-# ==================== Models ====================
+def get_async_engine():
+    """Create a new async engine for the current event loop."""
+    if not DATABASE_URL:
+        raise RuntimeError("Database not configured")
+    
+    db_url = DATABASE_URL
+    if db_url.startswith('postgres://'):
+        db_url = db_url.replace('postgres://', 'postgresql://', 1)
+    
+    async_db_url = db_url.replace('postgresql://', 'postgresql+asyncpg://')
+    
+    return create_async_engine(
+        async_db_url,
+        echo=False,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10
+    )
 
-class Player(Base):
+
+def get_async_session():
+    """Create a new async session for the current event loop."""
+    engine = get_async_engine()
+    return sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )()
+
+
     """Represents a Discord user registered for AoE3 tracking."""
     __tablename__ = 'players'
     
@@ -254,10 +281,13 @@ async def register_player(
     solo_elo: int = None
 ) -> Dict:
     """Register a new player or update existing player."""
-    if not AsyncSessionLocal:
+    if not DATABASE_URL:
         raise RuntimeError("Database not configured")
     
-    async with AsyncSessionLocal() as session:
+    # Create a fresh session for this event loop
+    session = get_async_session()
+    
+    try:
         # Check if player already exists
         result = await session.execute(
             select(Player).where(Player.discord_id == int(discord_id))
@@ -299,6 +329,8 @@ async def register_player(
             'team_elo': player.team_elo,
             'solo_elo': player.solo_elo
         }
+    finally:
+        await session.close()
 
 
 async def get_player_by_discord_id(discord_id: str) -> Optional[Dict]:
