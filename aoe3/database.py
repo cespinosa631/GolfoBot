@@ -32,12 +32,15 @@ if not DATABASE_URL:
     engine = None
     AsyncSessionLocal = None
 else:
+    logger.info(f"DATABASE_URL found: {DATABASE_URL[:30]}... (length: {len(DATABASE_URL)})")
     # Railway uses postgres://, SQLAlchemy 1.4+ requires postgresql://
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        logger.info("Converted postgres:// to postgresql://")
     
     # For async operations, use asyncpg driver
     ASYNC_DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+asyncpg://')
+    logger.info("Creating async database engine...")
     
     # Create async engine with connection pooling
     engine = create_async_engine(
@@ -48,6 +51,7 @@ else:
         max_overflow=10  # Extra connections beyond pool_size
     )
     
+    logger.info("Creating async session factory...")
     # Use sessionmaker for SQLAlchemy 1.4 compatibility
     AsyncSessionLocal = sessionmaker(
         engine, 
@@ -55,6 +59,7 @@ else:
         expire_on_commit=False
     )
     
+    logger.info("✅ Database configured successfully")
     Base = declarative_base()
 
 
