@@ -23,7 +23,7 @@ GolfoBot is a Discord bot with voice conversation capabilities, powered by Groq 
 1. **Install dependencies:**
 
 ```bash
-conda activate tensor
+conda activate YOUR_ENV
 pip install discord.py discord-ext-voice-recv SpeechRecognition PyNaCl requests aiohttp python-dotenv
 ```
 
