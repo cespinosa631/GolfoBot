@@ -293,8 +293,10 @@ class VoiceListener(voice_recv.VoiceRecvClient):
     
     def __init__(self, client, channel):
         super().__init__(client, channel)
-        # Disable automatic reconnections
-        self.reconnect = False  # Set to False to prevent reconnection attempts
+        # NOTE: do NOT set self.reconnect = False here.
+        # discord.py's internal reconnect/DAVE re-negotiation logic relies on this flag;
+        # suppressing it was causing the voice WebSocket to close with code 4017.
+        # Manual reconnection is handled by the voice_health_monitor task instead.
         logger.info(f"VoiceListener initialized for channel {channel.id}")
         
     async def on_voice_member_packet(self, member, packet):

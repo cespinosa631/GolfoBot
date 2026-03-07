@@ -7,8 +7,9 @@ APScheduler
 google-generativeai
 
 # Gateway bot and voice
-discord.py[voice]==2.6.4
-discord-ext-voice-recv
+# Pinned to git HEAD for Discord DAVE (E2EE voice, close-code 4017) support
+discord.py[voice] @ git+https://github.com/Rapptz/discord.py.git
+discord-ext-voice-recv @ git+https://github.com/imayhaveborkedit/discord-ext-voice-recv.git
 PyNaCl
 SpeechRecognition
 gTTS
