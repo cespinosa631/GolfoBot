@@ -627,6 +627,22 @@ async def start_voice_listening(vc):
                 # Clear our reference so the health monitor knows the sink is gone
                 if guild_id in voice_listeners and voice_listeners[guild_id].get('sink') is self:
                     voice_listeners[guild_id]['sink'] = None
+                    # Schedule sink recreation after a short delay to handle DAVE re-keying
+                    # Without this, we'd wait up to VOICE_HEALTH_CHECK_INTERVAL (20s) for health monitor
+                    async def _reschedule_listen():
+                        await asyncio.sleep(1.0)
+                        if (guild_id in voice_listeners
+                                and voice_listeners[guild_id].get('sink') is None
+                                and guild_id not in bot_is_speaking
+                                and guild_id not in encoder_transitioning):
+                            vc_ref = voice_listeners[guild_id].get('vc')
+                            if vc_ref and vc_ref.is_connected():
+                                logger.info(f"🔄 Auto-rescheduling sink for guild {guild_id} after DAVE re-key")
+                                try:
+                                    await start_voice_listening(vc_ref)
+                                except Exception as _e:
+                                    logger.warning(f"Auto-reschedule failed: {_e}")
+                    asyncio.run_coroutine_threadsafe(_reschedule_listen(), self.loop)
         
         # Check if Opus is loaded before starting
         try:
@@ -639,6 +655,8 @@ async def start_voice_listening(vc):
             raise
             
         sink = CustomSink(vc)
+        # Store BEFORE vc.listen() so cleanup() can always find and clear the reference
+        voice_listeners[guild_id] = {'active': True, 'vc': vc, 'sink': sink}
         vc.listen(sink)
         logger.info(f"✅ Started listening with CustomSink for guild {guild_id}")
         logger.info(f"✅ Opus status: loaded={discord.opus.is_loaded()}")
@@ -648,8 +666,6 @@ async def start_voice_listening(vc):
         logger.error(f"❌ Failed to start listening: {e}", exc_info=True)
         raise
         
-    # Mark as listening, storing the sink reference so the health monitor can track it
-    voice_listeners[guild_id] = {'active': True, 'vc': vc, 'sink': sink}
     logger.info(f"🎤 Voice listening enabled for guild {guild_id} - GolfoBot will now respond to speech!")
 
 
@@ -1277,12 +1293,15 @@ async def voice_health_monitor():
                     # Check our own sink reference (vc.sink is unreliable after DAVE protocol changes)
                     has_sink = voice_listeners[guild_id].get('sink') is not None
                     if not has_sink and guild_id not in bot_is_speaking and guild_id not in encoder_transitioning:
-                        logger.warning(f"⚠️ Sink missing for {channel.name}, recreating...")
-                        try:
-                            await start_voice_listening(vc)
-                            logger.info(f"✅ Recreated missing sink for {channel.name}")
-                        except Exception as sink_err:
-                            logger.error(f"Failed to recreate sink: {sink_err}")
+                        last_recreate = voice_listeners[guild_id].get('last_recreated', 0)
+                        if current_time - last_recreate > 10:  # 10s cooldown to prevent DAVE thrashing
+                            voice_listeners[guild_id]['last_recreated'] = current_time
+                            logger.warning(f"⚠️ Sink missing for {channel.name}, recreating...")
+                            try:
+                                await start_voice_listening(vc)
+                                logger.info(f"✅ Recreated missing sink for {channel.name}")
+                            except Exception as sink_err:
+                                logger.error(f"Failed to recreate sink: {sink_err}")
                 
                 # Send periodic keepalive by updating speaking state
                 last_ka = last_keepalive.get(guild_id, 0)
