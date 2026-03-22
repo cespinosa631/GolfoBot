@@ -404,14 +404,14 @@ async def get_all_players() -> List[Dict]:
         players = result.scalars().all()
         
         return [{
-            'id': p.id,
+            'id': p.discord_id,
             'discord_id': str(p.discord_id),
             'discord_username': p.discord_username,
             'aoe3_username': p.aoe3_username,
             'aoe3_profile_url': p.aoe3_profile_url,
             'elo_team': p.elo_team,
             'elo_1v1': p.elo_1v1,
-            'last_updated': p.last_updated
+            'last_updated': p.last_checked_at
         } for p in players]
 
 

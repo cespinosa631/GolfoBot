@@ -624,6 +624,9 @@ async def start_voice_listening(vc):
                 
             def cleanup(self):
                 logger.info(f"🛑 CustomSink cleanup called, received {self.packet_count} total packets")
+                # Clear our reference so the health monitor knows the sink is gone
+                if guild_id in voice_listeners and voice_listeners[guild_id].get('sink') is self:
+                    voice_listeners[guild_id]['sink'] = None
         
         # Check if Opus is loaded before starting
         try:
@@ -645,8 +648,8 @@ async def start_voice_listening(vc):
         logger.error(f"❌ Failed to start listening: {e}", exc_info=True)
         raise
         
-    # Mark as listening
-    voice_listeners[guild_id] = {'active': True, 'vc': vc}
+    # Mark as listening, storing the sink reference so the health monitor can track it
+    voice_listeners[guild_id] = {'active': True, 'vc': vc, 'sink': sink}
     logger.info(f"🎤 Voice listening enabled for guild {guild_id} - GolfoBot will now respond to speech!")
 
 
@@ -1271,8 +1274,8 @@ async def voice_health_monitor():
                 # Check if sink is missing and needs to be recreated
                 # This can happen if the sink gets destroyed by an error or exception
                 if isinstance(vc, VoiceListener) and guild_id in voice_listeners:
-                    # Check if vc has a sink attached
-                    has_sink = hasattr(vc, 'sink') and vc.sink is not None
+                    # Check our own sink reference (vc.sink is unreliable after DAVE protocol changes)
+                    has_sink = voice_listeners[guild_id].get('sink') is not None
                     if not has_sink and guild_id not in bot_is_speaking and guild_id not in encoder_transitioning:
                         logger.warning(f"⚠️ Sink missing for {channel.name}, recreating...")
                         try:
