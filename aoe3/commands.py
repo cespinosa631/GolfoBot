@@ -479,6 +479,48 @@ class AoE3Commands(commands.Cog):
                 ephemeral=True
             )
 
+    @app_commands.command(name="debug_test_response", description="[DEBUG] Test bot voice response with simulated transcription")
+    @app_commands.describe(text="Text to simulate as transcription (e.g., 'Hey GolfoBot, what is your favorite civilization?')")
+    async def debug_test_response(self, interaction: discord.Interaction, text: str):
+        """Debug command to test voice responses by simulating transcription."""
+        await interaction.response.defer(thinking=True)
+
+        try:
+            # Get voice client for this guild (it should be a VoiceListener)
+            voice_client = interaction.guild.voice_client
+            if not voice_client:
+                await interaction.followup.send(
+                    "❌ El bot no está en un canal de voz. Únete a un canal de voz primero.",
+                    ephemeral=True
+                )
+                return
+
+            # Check if it's our custom VoiceListener
+            from ..gateway_bot import VoiceListener
+            if not isinstance(voice_client, VoiceListener):
+                await interaction.followup.send(
+                    "❌ El cliente de voz no es un VoiceListener válido.",
+                    ephemeral=True
+                )
+                return
+
+            logger.info(f"DEBUG: Testing response with simulated text: '{text}'")
+
+            # Call the response function on the voice listener (which is the voice_client)
+            await voice_client.respond_to_speech(text, interaction.user.display_name, str(interaction.guild.id), context_aware=True)
+
+            await interaction.followup.send(
+                f"✅ Simulé respuesta de voz con texto: '{text}'\nEscucha el canal de voz para oír la respuesta.",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error in debug test response: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Error al probar respuesta: {e}",
+                ephemeral=True
+            )
+
 
 async def setup(bot: commands.Bot):
     """Setup function to add the cog to the bot."""
