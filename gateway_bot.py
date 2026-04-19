@@ -645,13 +645,13 @@ async def start_voice_listening(vc):
                                     # Get user info for processing
                                     user_id = key[1]
                                     member = None
-                                    for vc in self.vc_instance.guild.voice_channels:
-                                        for m in vc.members:
-                                            if m.id == user_id:
+                                    # Look for the member in the current voice channel
+                                    vc = self.vc_instance
+                                    if vc and vc.channel:
+                                        for m in vc.channel.members:
+                                            if m.id == user_id and not m.bot:  # Make sure it's not the bot itself
                                                 member = m
                                                 break
-                                        if member:
-                                            break
                                     
                                     if member:
                                         # Run transcription synchronously (blocking)
