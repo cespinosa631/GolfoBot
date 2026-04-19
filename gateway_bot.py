@@ -430,6 +430,7 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                 
                 # Check if the bot is being addressed
                 is_addressed = is_addressing_bot(text, self.client.user.id)
+                logger.info(f"Bot addressing check: text='{text}', is_addressed={is_addressed}, bot_id={self.client.user.id}")
                 
                 # Random chance to reply even when not addressed
                 random_reply = random.random() < RANDOM_REPLY_PROBABILITY
@@ -442,6 +443,8 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                     await self.respond_to_speech(text, member.display_name, guild_id, context_aware=True)
                 else:
                     logger.info(f"Bot not addressed - ignoring speech from {member.display_name}")
+            else:
+                logger.warning(f"Transcription returned empty text for {member.display_name}")
                 
         except Exception as e:
             logger.error(f"Error processing speech: {e}", exc_info=True)
@@ -524,6 +527,7 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             
     async def respond_to_speech(self, text: str, username: str, guild_id: int, context_aware: bool = False):
         """Send transcribed text to LLM and speak response."""
+        logger.info(f"respond_to_speech called with text='{text}', username='{username}', guild_id={guild_id}")
         try:
             payload = {
                 'content': text,
@@ -540,18 +544,24 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                     payload['context'] = context
                     logger.info(f"Including conversation context: {len(context)} chars")
 
+            logger.info(f"Calling LLM endpoint {FLASK_HOST}/dev/llm_reply with payload: {payload}")
             async with aiohttp.ClientSession() as session:
                 async with session.post(f"{FLASK_HOST}/dev/llm_reply", json=payload, timeout=10) as resp:
+                    logger.info(f"LLM endpoint response status: {resp.status}")
                     if resp.status == 200:
                         data = await resp.json()
                         reply = data.get('reply', '')
+                        logger.info(f"LLM reply: '{reply[:100]}...'")
                         
                         if reply:
                             logger.info(f"Speaking reply: {reply[:100]}")
                             # Speak immediately without delay
                             await tts_play(self, reply)
+                        else:
+                            logger.warning("LLM returned empty reply")
                     else:
-                        logger.warning(f"LLM endpoint returned {resp.status}")
+                        response_text = await resp.text()
+                        logger.warning(f"LLM endpoint returned {resp.status}: {response_text}")
                         
         except Exception as e:
             logger.error(f"Error responding to speech: {e}", exc_info=True)
@@ -699,6 +709,7 @@ async def start_voice_listening(vc):
                                                 
                                                 # Check if the bot is being addressed
                                                 is_addressed = is_addressing_bot(text, self.vc_instance.client.user.id)
+                                                logger.info(f"Emergency bot addressing check: text='{text}', is_addressed={is_addressed}")
                                                 
                                                 if is_addressed:
                                                     logger.info(f"Bot detected it's being addressed (emergency) - responding to {member.display_name}")
@@ -709,6 +720,8 @@ async def start_voice_listening(vc):
                                                     )
                                                 else:
                                                     logger.info(f"Bot not addressed in emergency transcription - ignoring speech from {member.display_name}")
+                                            else:
+                                                logger.warning(f"Emergency transcription returned empty text for {member.display_name}")
                                         finally:
                                             try:
                                                 os.remove(wav_path)
