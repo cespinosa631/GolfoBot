@@ -557,35 +557,32 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             logger.error(f"Error responding to speech: {e}", exc_info=True)
 
 
-async def start_voice_listening(vc, preserve_buffers=False):
-    """Enable voice listening for the voice client.
-    
-    When preserve_buffers=True (used for DAVE re-key reattach), audio buffers and
-    speech tracking state are NOT cleared so accumulated audio survives sink cycling.
-    """
+async def start_voice_listening(vc):
+    """Enable voice listening for the voice client."""
     if not isinstance(vc, VoiceListener):
         logger.warning("Voice client is not a VoiceListener, cannot enable listening")
         return
         
     guild_id = vc.guild.id
     
-    if not preserve_buffers:
-        # Full restart: clean up old listener state including audio buffers
-        if guild_id in voice_listeners:
-            logger.info(f"Cleaning up existing listener state in guild {guild_id} before restart")
-            await stop_voice_listening(guild_id)
+    # Always clean up old listener state before creating new sink
+    # This is critical because discord.py's play() destroys sinks
+    if guild_id in voice_listeners:
+        logger.info(f"Cleaning up existing listener state in guild {guild_id} before restart")
+        await stop_voice_listening(guild_id)
     
-    # Detach any previous sinks from the voice client
+    # CRITICAL: If voice client has stop_listening method, call it to properly detach any previous sinks
+    # This ensures the encoder is in a clean state before attaching a new sink
     if hasattr(vc, 'stop_listening') and callable(vc.stop_listening):
         try:
             vc.stop_listening()
-            if not preserve_buffers:
-                logger.info(f"Explicitly called stop_listening() to clear previous sink")
+            logger.info(f"Explicitly called stop_listening() to clear previous sink")
         except Exception as e:
             logger.debug(f"stop_listening() call raised exception (may not be actively listening): {e}")
     
-    # Wait briefly for the encoder/DAVE handshake to settle
-    await asyncio.sleep(0.1 if preserve_buffers else 0.3)
+    # Wait briefly for the encoder to fully transition to idle state
+    # This prevents the new sink from being destroyed immediately
+    await asyncio.sleep(0.3)
     
     # Start listening mode with a custom sink
     try:
@@ -631,6 +628,18 @@ async def start_voice_listening(vc, preserve_buffers=False):
                 # Clear our reference so the health monitor knows the sink is gone
                 if guild_id in voice_listeners and voice_listeners[guild_id].get('sink') is self:
                     voice_listeners[guild_id]['sink'] = None
+                    
+                    # CRITICAL: Clear audio buffers when DAVE re-keying destroys the sink.
+                    # Audio accumulated across sink cycles is corrupted by gaps and should not be transcribed.
+                    keys_to_clear = [k for k in audio_buffers.keys() if k[0] == guild_id]
+                    for k in keys_to_clear:
+                        if k in audio_buffers:
+                            del audio_buffers[k]
+                        if k in last_speech_time:
+                            del last_speech_time[k]
+                        processing_speech.discard(k)
+                    logger.info(f"🧹 Cleared audio buffers for guild {guild_id} due to DAVE re-keying")
+                    
                     # Only allow ONE reschedule task per guild at a time.
                     # Previous code had no guard here, causing exponential rescheduler growth:
                     # every vc.listen() triggers a DAVE cleanup which spawned another rescheduler,
@@ -654,7 +663,7 @@ async def start_voice_listening(vc, preserve_buffers=False):
                                         # preserve_buffers=True: don't wipe audio_buffers or
                                         # last_speech_time so speech accumulated across DAVE cycles
                                         # can still be transcribed.
-                                        await start_voice_listening(vc_ref, preserve_buffers=True)
+                                        await start_voice_listening(vc_ref)
                                     except Exception as _e:
                                         logger.warning(f"Auto-reschedule failed: {_e}")
                         asyncio.run_coroutine_threadsafe(_reschedule_listen(), self.loop)
@@ -670,13 +679,8 @@ async def start_voice_listening(vc, preserve_buffers=False):
             raise
             
         sink = CustomSink(vc)
-        # Store BEFORE vc.listen() so cleanup() can always find and clear the reference.
-        # When preserve_buffers=True, update the existing dict in-place so other fields
-        # (last_recreated, etc.) are preserved; a full replacement would lose them.
-        if preserve_buffers and guild_id in voice_listeners:
-            voice_listeners[guild_id].update({'active': True, 'vc': vc, 'sink': sink})
-        else:
-            voice_listeners[guild_id] = {'active': True, 'vc': vc, 'sink': sink}
+        # Store BEFORE vc.listen() so cleanup() can always find and clear the reference
+        voice_listeners[guild_id] = {'active': True, 'vc': vc, 'sink': sink}
         vc.listen(sink)
         logger.info(f"✅ Started listening with CustomSink for guild {guild_id}")
         logger.info(f"✅ Opus status: loaded={discord.opus.is_loaded()}")
