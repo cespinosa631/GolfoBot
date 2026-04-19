@@ -11,7 +11,8 @@ google-generativeai
 discord.py[voice] @ git+https://github.com/Rapptz/discord.py.git
 discord-ext-voice-recv @ git+https://github.com/imayhaveborkedit/discord-ext-voice-recv.git
 PyNaCl
-SpeechRecognition
+openai-whisper
+torch>=2.0.0
 gTTS
 piper-tts
 aiohttp

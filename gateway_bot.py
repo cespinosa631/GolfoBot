@@ -26,6 +26,7 @@ import re
 import tempfile
 import random
 import gc  # Garbage collection for memory optimization
+import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from gtts import gTTS
@@ -34,6 +35,25 @@ import wave
 import audioop
 
 load_dotenv()
+
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
+_whisper_model = None
+_whisper_model_lock = threading.Lock()
+
+
+def get_whisper_model(model_name: str = None):
+    global _whisper_model
+    if model_name is None:
+        model_name = WHISPER_MODEL_NAME
+    if _whisper_model is None:
+        with _whisper_model_lock:
+            if _whisper_model is None:
+                import whisper
+
+                logger.info(f"Loading Whisper model '{model_name}' for speech transcription...")
+                _whisper_model = whisper.load_model(model_name)
+                logger.info(f"Whisper model '{model_name}' loaded successfully")
+    return _whisper_model
 
 
 def normalize_discord_pcm_for_google(
@@ -512,53 +532,33 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             
     def _transcribe_audio_sync(self, audio_bytes: bytes) -> str:
         """Synchronous transcription helper (runs in thread)."""
-        import speech_recognition as sr
-        
-        # Normalize Discord PCM for Google Speech API
         normalized_audio = normalize_discord_pcm_for_google(audio_bytes)
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
             wav_path = wav_file.name
-            
+
             with wave.open(wav_path, 'wb') as wf:
-                wf.setnchannels(1)  # Mono for Google
+                wf.setnchannels(1)  # Mono for Whisper
                 wf.setsampwidth(2)  # 16-bit
                 wf.setframerate(16000)  # 16kHz
                 wf.writeframes(normalized_audio)
-        logger.info("Audio normalized to mono 16kHz for Google Speech API")
-        
+        logger.info("Audio normalized to mono 16kHz for Whisper transcription")
+
         try:
-            logger.info(f"Processing {len(audio_bytes)} bytes audio")
-            
-            # Transcribe with aggressive settings
-            recognizer = sr.Recognizer()
-            recognizer.energy_threshold = 50  # Very low threshold
-            recognizer.dynamic_energy_threshold = False
-            recognizer.pause_threshold = 0.5  # Shorter pauses
-            
-            with sr.AudioFile(wav_path) as source:
-                # Don't adjust for ambient noise - sometimes makes it worse
-                audio = recognizer.record(source)
-                logger.info(f"Audio loaded, attempting transcription...")
-                
-            # Try Spanish first, then English
-            try:
-                text = recognizer.recognize_google(audio, language='es-MX', show_all=False)
-                logger.info(f"✅ Transcribed (es-MX): {text}")
+            logger.info(f"Processing {len(audio_bytes)} bytes audio with Whisper")
+            model = get_whisper_model()
+            result = model.transcribe(wav_path, task="transcribe", language=None, fp16=False)
+            text = result.get("text", "").strip()
+
+            if text:
+                logger.info(f"✅ Whisper transcribed: {text}")
                 return text
-            except sr.UnknownValueError:
-                logger.warning("Spanish failed, trying English...")
-                try:
-                    text = recognizer.recognize_google(audio, language='en-US', show_all=False)
-                    logger.info(f"✅ Transcribed (en-US): {text}")
-                    return text
-                except sr.UnknownValueError:
-                    logger.error("❌ Could not understand audio in any language")
-                    raise
+            else:
+                logger.warning("Whisper transcription returned empty text")
+                return None
         except Exception as e:
-            logger.error(f"Transcription error: {e}")
-            raise
+            logger.error(f"Whisper transcription error: {e}")
+            return None
         finally:
-            # Cleanup
             try:
                 os.remove(wav_path)
             except:
@@ -566,20 +566,11 @@ class VoiceListener(voice_recv.VoiceRecvClient):
     
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """Transcribe audio to text (runs in executor to avoid blocking)."""
-        import speech_recognition as sr
-        
         try:
             # Run in thread executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
             text = await loop.run_in_executor(None, self._transcribe_audio_sync, audio_bytes)
             return text
-            
-        except sr.UnknownValueError:
-            logger.warning(f"Could not understand audio (UnknownValueError)")
-            return None
-        except sr.RequestError as e:
-            logger.error(f"Speech recognition service error: {e}")
-            return None
         except Exception as e:
             logger.warning(f"Transcription failed: {e}")
             return None
@@ -732,75 +723,29 @@ async def start_voice_listening(vc):
                                             break
 
                                 if member:
-                                    # Run transcription synchronously (blocking)
-                                    import speech_recognition as sr
-                                    import tempfile
-                                    import wave
+                                    text = self.vc_instance._transcribe_audio_sync(audio_bytes)
                                     
-                                    normalized_audio = normalize_discord_pcm_for_google(audio_bytes)
-                                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-                                        wav_path = wav_file.name
+                                    if text and len(text.strip()) > 0:
+                                        logger.info(f"Emergency transcribed from {member.display_name}: {text}")
                                         
-                                        with wave.open(wav_path, 'wb') as wf:
-                                            wf.setnchannels(1)  # Mono for Google
-                                            wf.setsampwidth(2)  # 16-bit
-                                            wf.setframerate(16000)  # 16kHz
-                                            wf.writeframes(normalized_audio)
-                                    logger.info("Emergency audio normalized to mono 16kHz for Google Speech API")
-                                    
-                                    try:
-                                        logger.info(f"Processing {len(audio_bytes)} bytes audio from {member.display_name} (emergency DAVE processing)")
+                                        # Add to conversation context
+                                        add_to_context(guild_id, member.display_name, text)
                                         
-                                        # Transcribe with aggressive settings
-                                        recognizer = sr.Recognizer()
-                                        recognizer.energy_threshold = 50
-                                        recognizer.dynamic_energy_threshold = False
-                                        recognizer.pause_threshold = 0.5
+                                        # Check if the bot is being addressed
+                                        is_addressed = is_addressing_bot(text, self.vc_instance.client.user.id)
+                                        logger.info(f"Emergency bot addressing check: text='{text}', is_addressed={is_addressed}")
                                         
-                                        with sr.AudioFile(wav_path) as source:
-                                            logger.info(f"Emergency: Audio loaded, attempting transcription...")
-                                            audio = recognizer.record(source)
-                                            logger.info(f"Emergency: Audio recorded, length: {len(audio.frame_data) if hasattr(audio, 'frame_data') else 'unknown'}")
-                                            
-                                        # Try Spanish first, then English
-                                        try:
-                                            text = recognizer.recognize_google(audio, language='es-MX', show_all=False)
-                                            logger.info(f"✅ Emergency transcribed (es-MX): {text}")
-                                        except sr.UnknownValueError:
-                                            logger.warning("Emergency Spanish failed, trying English...")
-                                            try:
-                                                text = recognizer.recognize_google(audio, language='en-US', show_all=False)
-                                                logger.info(f"✅ Emergency transcribed (en-US): {text}")
-                                            except sr.UnknownValueError:
-                                                logger.error("❌ Emergency transcription: Could not understand audio in any language")
-                                                text = None
-                                                
-                                        if text and len(text.strip()) > 0:
-                                            logger.info(f"Emergency transcribed from {member.display_name}: {text}")
-                                            
-                                            # Add to conversation context
-                                            add_to_context(guild_id, member.display_name, text)
-                                            
-                                            # Check if the bot is being addressed
-                                            is_addressed = is_addressing_bot(text, self.vc_instance.client.user.id)
-                                            logger.info(f"Emergency bot addressing check: text='{text}', is_addressed={is_addressed}")
-                                            
-                                            if is_addressed:
-                                                logger.info(f"Bot detected it's being addressed (emergency) - responding to {member.display_name}")
-                                                # Schedule response asynchronously
-                                                asyncio.run_coroutine_threadsafe(
-                                                    self.vc_instance.respond_to_speech(text, member.display_name, guild_id, context_aware=True),
-                                                    self.loop
-                                                )
-                                            else:
-                                                logger.info(f"Bot not addressed in emergency transcription - ignoring speech from {member.display_name}")
+                                        if is_addressed:
+                                            logger.info(f"Bot detected it's being addressed (emergency) - responding to {member.display_name}")
+                                            # Schedule response asynchronously
+                                            asyncio.run_coroutine_threadsafe(
+                                                self.vc_instance.respond_to_speech(text, member.display_name, guild_id, context_aware=True),
+                                                self.loop
+                                            )
                                         else:
-                                            logger.warning(f"Emergency transcription returned empty text for {member.display_name}")
-                                    finally:
-                                        try:
-                                            os.remove(wav_path)
-                                        except:
-                                            pass
+                                            logger.info(f"Bot not addressed in emergency transcription - ignoring speech from {member.display_name}")
+                                    else:
+                                        logger.warning(f"Emergency transcription returned empty text for {member.display_name}")
                                 else:
                                     logger.debug(f"Member id {user_id} not found in channel during emergency cleanup")
                             except Exception as e:
