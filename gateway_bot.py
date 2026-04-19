@@ -629,16 +629,106 @@ async def start_voice_listening(vc):
                 if guild_id in voice_listeners and voice_listeners[guild_id].get('sink') is self:
                     voice_listeners[guild_id]['sink'] = None
                     
-                    # CRITICAL: Clear audio buffers when DAVE re-keying destroys the sink.
-                    # Audio accumulated across sink cycles is corrupted by gaps and should not be transcribed.
-                    keys_to_clear = [k for k in audio_buffers.keys() if k[0] == guild_id]
+                    # CRITICAL: Process any accumulated audio BEFORE clearing buffers due to DAVE re-keying.
+                    # If we have enough packets (5+), process them immediately rather than losing the audio.
+                    keys_to_clear = []
+                    for key in audio_buffers.keys():
+                        if key[0] == guild_id:  # This guild's buffers
+                            chunks = audio_buffers[key]
+                            if len(chunks) >= 5:  # Enough for processing
+                                logger.info(f"🚨 DAVE re-keying with {len(chunks)} accumulated packets - processing before clearing")
+                                # Process the audio synchronously in the cleanup thread
+                                try:
+                                    # Combine audio (PCM is 48kHz 16-bit stereo)
+                                    audio_bytes = b''.join(chunks)
+                                    
+                                    # Get user info for processing
+                                    user_id = key[1]
+                                    member = None
+                                    for vc in self.vc_instance.guild.voice_channels:
+                                        for m in vc.members:
+                                            if m.id == user_id:
+                                                member = m
+                                                break
+                                        if member:
+                                            break
+                                    
+                                    if member:
+                                        # Run transcription synchronously (blocking)
+                                        import speech_recognition as sr
+                                        import tempfile
+                                        import wave
+                                        
+                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
+                                            wav_path = wav_file.name
+                                            
+                                            with wave.open(wav_path, 'wb') as wf:
+                                                wf.setnchannels(2)  # Stereo
+                                                wf.setsampwidth(2)  # 16-bit
+                                                wf.setframerate(48000)  # 48kHz
+                                                wf.writeframes(audio_bytes)
+                                        
+                                        try:
+                                            logger.info(f"Processing {len(audio_bytes)} bytes audio from {member.display_name} (emergency DAVE processing)")
+                                            
+                                            # Transcribe with aggressive settings
+                                            recognizer = sr.Recognizer()
+                                            recognizer.energy_threshold = 50
+                                            recognizer.dynamic_energy_threshold = False
+                                            recognizer.pause_threshold = 0.5
+                                            
+                                            with sr.AudioFile(wav_path) as source:
+                                                audio = recognizer.record(source)
+                                                
+                                            # Try Spanish first, then English
+                                            try:
+                                                text = recognizer.recognize_google(audio, language='es-MX', show_all=False)
+                                                logger.info(f"✅ Emergency transcribed (es-MX): {text}")
+                                            except sr.UnknownValueError:
+                                                try:
+                                                    text = recognizer.recognize_google(audio, language='en-US', show_all=False)
+                                                    logger.info(f"✅ Emergency transcribed (en-US): {text}")
+                                                except sr.UnknownValueError:
+                                                    text = None
+                                                    
+                                            if text and len(text.strip()) > 0:
+                                                logger.info(f"Emergency transcribed from {member.display_name}: {text}")
+                                                
+                                                # Add to conversation context
+                                                add_to_context(guild_id, member.display_name, text)
+                                                
+                                                # Check if the bot is being addressed
+                                                is_addressed = is_addressing_bot(text, self.vc_instance.client.user.id)
+                                                
+                                                if is_addressed:
+                                                    logger.info(f"Bot detected it's being addressed (emergency) - responding to {member.display_name}")
+                                                    # Schedule response asynchronously
+                                                    asyncio.run_coroutine_threadsafe(
+                                                        self.vc_instance.respond_to_speech(text, member.display_name, guild_id, context_aware=True),
+                                                        self.loop
+                                                    )
+                                                else:
+                                                    logger.info(f"Bot not addressed in emergency transcription - ignoring speech from {member.display_name}")
+                                        finally:
+                                            try:
+                                                os.remove(wav_path)
+                                            except:
+                                                pass
+                                except Exception as e:
+                                    logger.error(f"Emergency audio processing failed: {e}")
+                            
+                            keys_to_clear.append(key)
+                    
+                    # Clear the buffers after processing
                     for k in keys_to_clear:
                         if k in audio_buffers:
                             del audio_buffers[k]
                         if k in last_speech_time:
                             del last_speech_time[k]
                         processing_speech.discard(k)
-                    logger.info(f"🧹 Cleared audio buffers for guild {guild_id} due to DAVE re-keying")
+                    
+                    if keys_to_clear:
+                        logger.info(f"🧹 Cleared audio buffers for guild {guild_id} due to DAVE re-keying (processed {len([k for k in keys_to_clear if len(audio_buffers.get(k, [])) >= 5])} emergency transcriptions)")
                     
                     # Only allow ONE reschedule task per guild at a time.
                     # Previous code had no guard here, causing exponential rescheduler growth:
@@ -660,9 +750,6 @@ async def start_voice_listening(vc):
                                 if vc_ref and vc_ref.is_connected():
                                     logger.info(f"🔄 Auto-rescheduling sink for guild {guild_id} after DAVE re-key")
                                     try:
-                                        # preserve_buffers=True: don't wipe audio_buffers or
-                                        # last_speech_time so speech accumulated across DAVE cycles
-                                        # can still be transcribed.
                                         await start_voice_listening(vc_ref)
                                     except Exception as _e:
                                         logger.warning(f"Auto-reschedule failed: {_e}")
