@@ -422,6 +422,8 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                 logger.debug(f"Empty PCM data from {member.name}")
                 return
                 
+            logger.debug(f"📊 Packet data: {len(pcm_data)} bytes")
+                
             if pcm_data and len(pcm_data) > 0:
                 # Enforce max buffer size to prevent memory overflow
                 if len(audio_buffers[key]) >= MAX_AUDIO_BUFFER_PACKETS:
@@ -484,8 +486,8 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             chunks = audio_buffers[key]
             audio_buffers[key] = []  # Clear buffer
             
-            if len(chunks) < 1:  # Process even single packets since DAVE destroys frequently
-                logger.debug(f"Skipping audio from {member.display_name}: no audio chunks buffered")
+            if len(chunks) < 5:  # Need at least 5 packets (~100ms) for meaningful speech
+                logger.warning(f"Skipping audio from {member.display_name}: only {len(chunks)} packets buffered (need at least 5)")
                 del chunks  # Explicitly free memory
                 return
                 
@@ -533,6 +535,14 @@ class VoiceListener(voice_recv.VoiceRecvClient):
     def _transcribe_audio_sync(self, audio_bytes: bytes) -> str:
         """Synchronous transcription helper (runs in thread)."""
         normalized_audio = normalize_discord_pcm_for_google(audio_bytes)
+        logger.info(f"Audio normalized: {len(audio_bytes)} bytes -> {len(normalized_audio)} bytes (mono 16kHz)")
+        
+        # Skip if audio is too short for Whisper (need at least 0.5 seconds)
+        min_bytes = int(16000 * 0.5 * 2)  # 16kHz * 0.5s * 2 bytes/sample
+        if len(normalized_audio) < min_bytes:
+            logger.warning(f"Audio too short for Whisper: {len(normalized_audio)} bytes < {min_bytes} bytes (0.5s minimum)")
+            return None
+            
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
             wav_path = wav_file.name
 
