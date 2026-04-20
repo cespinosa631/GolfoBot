@@ -36,7 +36,7 @@ import audioop
 
 load_dotenv()
 
-WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
 _whisper_model = None
 _whisper_model_lock = threading.Lock()
 
@@ -52,7 +52,7 @@ def get_whisper_model(model_name: str = None):
 
                 logger.info(f"Loading Whisper model '{model_name}' for speech transcription...")
                 _whisper_model = whisper.load_model(model_name)
-                logger.info(f"Whisper model '{model_name}' loaded successfully")
+                logger.info(f"Whisper model '{model_name}' loaded successfully (device={_whisper_model.device})")
     return _whisper_model
 
 
@@ -546,14 +546,17 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         try:
             logger.info(f"Processing {len(audio_bytes)} bytes audio with Whisper")
             model = get_whisper_model()
+            logger.info(f"Whisper model ready: {model.__class__.__name__} on device {model.device}")
             result = model.transcribe(wav_path, task="transcribe", language=None, fp16=False)
+            logger.info(f"Whisper raw result keys: {list(result.keys())}")
             text = result.get("text", "").strip()
 
             if text:
                 logger.info(f"✅ Whisper transcribed: {text}")
                 return text
             else:
-                logger.warning("Whisper transcription returned empty text")
+                logger.warning(f"Whisper transcription returned empty text; segments={len(result.get('segments', []))}")
+                logger.debug(f"Whisper result object: {result}")
                 return None
         except Exception as e:
             logger.error(f"Whisper transcription error: {e}")
@@ -724,17 +727,18 @@ async def start_voice_listening(vc):
 
                                 if member:
                                     text = self.vc_instance._transcribe_audio_sync(audio_bytes)
-                                    
+                                    logger.info(f"Emergency Whisper result for {member.display_name}: {text}")
+
                                     if text and len(text.strip()) > 0:
                                         logger.info(f"Emergency transcribed from {member.display_name}: {text}")
-                                        
+
                                         # Add to conversation context
                                         add_to_context(guild_id, member.display_name, text)
-                                        
+
                                         # Check if the bot is being addressed
                                         is_addressed = is_addressing_bot(text, self.vc_instance.client.user.id)
                                         logger.info(f"Emergency bot addressing check: text='{text}', is_addressed={is_addressed}")
-                                        
+
                                         if is_addressed:
                                             logger.info(f"Bot detected it's being addressed (emergency) - responding to {member.display_name}")
                                             # Schedule response asynchronously
