@@ -271,6 +271,9 @@ QUIET_CHANNEL_TIMEOUT = 30  # Consider channel "quiet" if no speech for 30 secon
 VOICE_KEEPALIVE_INTERVAL = 30  # Send speaking state update every 30s to keep connection alive
 RECONNECT_GRACE_PERIOD = 3  # Ignore packets received within 3 seconds after reconnection
 MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory overflow, ~10 seconds)
+MIN_AUDIO_SECONDS_FOR_WHISPER = 0.5  # Minimum audio length to send to Whisper
+MIN_AUDIO_BYTES_FOR_WHISPER = int(16000 * MIN_AUDIO_SECONDS_FOR_WHISPER * 2)
+MIN_AUDIO_BUFFER_PACKETS = 5  # Minimum buffered packets before attempting transcription
 WEBSOCKET_CLOSING_TIMEOUT = 60  # If WebSocket stuck in closing state for 60s, force reconnect
 
 # Bot names that indicate someone is talking to it
@@ -486,8 +489,11 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             chunks = audio_buffers[key]
             audio_buffers[key] = []  # Clear buffer
             
-            if len(chunks) < 5:  # Need at least 5 packets (~100ms) for meaningful speech
-                logger.warning(f"Skipping audio from {member.display_name}: only {len(chunks)} packets buffered (need at least 5)")
+            if len(chunks) < MIN_AUDIO_BUFFER_PACKETS:  # Need a minimum number of packets for meaningful speech
+                logger.warning(
+                    f"Skipping audio from {member.display_name}: only {len(chunks)} packets buffered "
+                    f"(need at least {MIN_AUDIO_BUFFER_PACKETS})"
+                )
                 del chunks  # Explicitly free memory
                 return
                 
@@ -718,6 +724,14 @@ async def start_voice_listening(vc):
                     if key[0] == guild_id:  # This guild's buffers
                         chunks = audio_buffers[key]
                         if len(chunks) >= 1:  # Process any buffered audio before DAVE clears it
+                            audio_bytes = b''.join(chunks)
+                            if len(audio_bytes) < MIN_AUDIO_BYTES_FOR_WHISPER:
+                                logger.warning(
+                                    f"🚨 DAVE re-keying with too-short buffer: {len(chunks)} packets, {len(audio_bytes)} bytes. "
+                                    "Preserving until more audio arrives."
+                                )
+                                continue
+
                             logger.info(f"🚨 DAVE re-keying with {len(chunks)} accumulated packets - processing before clearing")
                             # Process the audio synchronously in the cleanup thread
                             try:
