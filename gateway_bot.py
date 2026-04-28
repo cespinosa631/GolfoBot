@@ -248,6 +248,7 @@ MENTION_REGEX = re.compile(r'<@!?(\d+)>', re.I)
 voice_listeners = {}  # guild_id -> dict with listener info
 audio_buffers = {}  # (guild_id, user_id) -> list of audio chunks
 last_speech_time = {}  # (guild_id, user_id) -> timestamp
+speech_end_tasks = {}  # (guild_id, user_id) -> asyncio.Task for speech-end detection
 processing_speech = set()  # (guild_id, user_id) tuples currently being processed
 conversation_context = {}  # guild_id -> list of recent speech [(username, text, timestamp)]
 last_voice_packet_time = {}  # guild_id -> timestamp of last voice packet received
@@ -274,6 +275,7 @@ MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory
 MIN_AUDIO_SECONDS_FOR_WHISPER = 0.5  # Minimum audio length to send to Whisper
 MIN_AUDIO_BYTES_FOR_WHISPER = int(16000 * MIN_AUDIO_SECONDS_FOR_WHISPER * 2)
 MIN_AUDIO_BUFFER_PACKETS = 5  # Minimum buffered packets before attempting transcription
+MAX_SHORT_AUDIO_TIMEOUT = 3.0  # Wait this long for more packets before dropping too-short speech
 WEBSOCKET_CLOSING_TIMEOUT = 60  # If WebSocket stuck in closing state for 60s, force reconnect
 
 # Bot names that indicate someone is talking to it
@@ -438,31 +440,64 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                 
                 if len(audio_buffers[key]) % 10 == 0:  # Log every 10 packets
                     logger.info(f"Buffered {len(audio_buffers[key])} packets from {member.name}")
-                
-                # Schedule processing check
-                asyncio.create_task(self.check_speech_end(guild_id, user_id, member))
+
+                # Schedule or reschedule speech-end detection.
+                existing_task = speech_end_tasks.get(key)
+                if existing_task and not existing_task.done():
+                    existing_task.cancel()
+                speech_end_tasks[key] = asyncio.create_task(
+                    self.check_speech_end(guild_id, user_id, member, delay=1.2)
+                )
         except Exception as e:
             logger.error(f"Error decoding audio packet: {e}", exc_info=True)
             
-    async def check_speech_end(self, guild_id, user_id, member):
+    async def check_speech_end(self, guild_id, user_id, member, delay: float = 1.2):
         """Check if user stopped speaking and process audio."""
-        await asyncio.sleep(1.2)
-        
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+
         key = (guild_id, user_id)
+        current_task = asyncio.current_task()
+
         if key not in last_speech_time or key in processing_speech:
             logger.debug(f"check_speech_end skipped for {member.name}: key not in last_speech_time or already processing")
             return
-            
+
         # If no new audio in last 1.0s, process what we have
         time_since_last_packet = time.time() - last_speech_time[key]
         buffered_packets = len(audio_buffers.get(key, []))
         logger.info(f"check_speech_end: {member.name} - time_since_packet={time_since_last_packet:.2f}s, buffered={buffered_packets} packets")
-        
+
         if time_since_last_packet >= 1.0:
-            logger.info(f"⏱️ Speech ended from {member.name} (1s timeout) - processing {buffered_packets} buffered packets")
-            await self.process_speech(guild_id, user_id, member)
+            if buffered_packets >= MIN_AUDIO_BUFFER_PACKETS:
+                logger.info(f"⏱️ Speech ended from {member.name} (1s timeout) - processing {buffered_packets} buffered packets")
+                await self.process_speech(guild_id, user_id, member)
+            elif time_since_last_packet < MAX_SHORT_AUDIO_TIMEOUT:
+                logger.info(
+                    f"Short speech detected for {member.name} ({buffered_packets} packets); waiting up to "
+                    f"{MAX_SHORT_AUDIO_TIMEOUT}s total before dropping."
+                )
+                speech_end_tasks[key] = asyncio.create_task(
+                    self.check_speech_end(guild_id, user_id, member, delay=0.5)
+                )
+            else:
+                logger.warning(
+                    f"Dropping too-short speech for {member.name} after {time_since_last_packet:.2f}s "
+                    f"with {buffered_packets} packets"
+                )
+                audio_buffers.pop(key, None)
+                last_speech_time.pop(key, None)
         else:
-            logger.debug(f"check_speech_end: {member.name} still speaking, re-scheduling check")
+            remaining = max(0.2, 1.0 - time_since_last_packet)
+            logger.debug(f"check_speech_end: {member.name} still speaking, re-scheduling in {remaining:.2f}s")
+            speech_end_tasks[key] = asyncio.create_task(
+                self.check_speech_end(guild_id, user_id, member, delay=remaining)
+            )
+        
+        if speech_end_tasks.get(key) is current_task:
+            del speech_end_tasks[key]
             
     async def process_speech(self, guild_id, user_id, member):
         """Transcribe and respond to speech."""
@@ -487,16 +522,17 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         try:
             # Get audio chunks
             chunks = audio_buffers[key]
-            audio_buffers[key] = []  # Clear buffer
             
             if len(chunks) < MIN_AUDIO_BUFFER_PACKETS:  # Need a minimum number of packets for meaningful speech
                 logger.warning(
                     f"Skipping audio from {member.display_name}: only {len(chunks)} packets buffered "
                     f"(need at least {MIN_AUDIO_BUFFER_PACKETS})"
                 )
-                del chunks  # Explicitly free memory
+                # Keep the buffer intact so more audio can accumulate later.
                 return
-                
+
+            audio_buffers[key] = []  # Clear buffer only once enough data exists
+
             # Combine audio (PCM is 48kHz 16-bit stereo)
             audio_bytes = b''.join(chunks)
             del chunks  # Free chunk list immediately after combining
