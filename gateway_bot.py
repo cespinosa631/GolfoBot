@@ -217,8 +217,12 @@ logging.getLogger('discord.ext.voice_recv.reader').setLevel(logging.WARNING)
 logging.getLogger('discord.voice_state').setLevel(logging.WARNING)  # Reduce voice reconnection noise
 
 DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
-FLASK_HOST = os.environ.get('FLASK_HOST')
+FLASK_HOST = os.environ.get('FLASK_HOST', 'http://127.0.0.1:5000').strip()
+if FLASK_HOST and not FLASK_HOST.startswith(('http://', 'https://')):
+    FLASK_HOST = f'http://{FLASK_HOST}'
+FLASK_HOST = FLASK_HOST.rstrip('/')
 DEV_SIMULATE_ENDPOINT = f"{FLASK_HOST}/dev/simulate_message"
+LLM_REPLY_ENDPOINT = f"{FLASK_HOST}/dev/llm_reply"
 TEST_CHANNEL_ID = os.environ.get('TEST_CHANNEL_ID')
 PARTIDA_1_VOICE_CHANNEL_ID = os.environ.get('PARTIDA_1_VOICE_CHANNEL_ID')
 TEST_VOICE_CHANNEL_ID = os.environ.get('TEST_VOICE_CHANNEL_ID')
@@ -226,6 +230,8 @@ TEST_VOICE_CHANNEL_ID = os.environ.get('TEST_VOICE_CHANNEL_ID')
 if not DISCORD_BOT_TOKEN:
     logger.error('DISCORD_BOT_TOKEN not set in environment. Exiting.')
     raise SystemExit(1)
+
+logger.info(f'Using FLASK_HOST={FLASK_HOST}')
 
 intents = Intents.default()
 intents.message_content = True
@@ -649,9 +655,9 @@ class VoiceListener(voice_recv.VoiceRecvClient):
                     payload['context'] = context
                     logger.info(f"Including conversation context: {len(context)} chars")
 
-            logger.info(f"Calling LLM endpoint {FLASK_HOST}/dev/llm_reply with payload: {payload}")
+            logger.info(f"Calling LLM endpoint {LLM_REPLY_ENDPOINT} with payload: {payload}")
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"{FLASK_HOST}/dev/llm_reply", json=payload, timeout=10) as resp:
+                async with session.post(LLM_REPLY_ENDPOINT, json=payload, timeout=10) as resp:
                     logger.info(f"LLM endpoint response status: {resp.status}")
                     if resp.status == 200:
                         data = await resp.json()
