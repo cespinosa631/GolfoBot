@@ -552,10 +552,9 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         normalized_audio = normalize_discord_pcm_for_google(audio_bytes)
         logger.info(f"Audio normalized: {len(audio_bytes)} bytes -> {len(normalized_audio)} bytes (mono 16kHz)")
         
-        # Skip if audio is too short for Google STT (need at least 0.5 seconds)
-        min_bytes = int(16000 * 0.5 * 2)  # 16kHz * 0.5s * 2 bytes/sample
-        if len(normalized_audio) < min_bytes:
-            logger.warning(f"Audio too short for transcription: {len(normalized_audio)} bytes < {min_bytes} bytes (0.5s minimum)")
+        # Skip if audio is too short for Google STT
+        if len(normalized_audio) < MIN_AUDIO_BYTES_FOR_TRANSCRIPTION:
+            logger.warning(f"Audio too short for transcription: {len(normalized_audio)} bytes < {MIN_AUDIO_BYTES_FOR_TRANSCRIPTION} bytes ({MIN_AUDIO_SECONDS_FOR_TRANSCRIPTION}s minimum)")
             return None
 
         try:
