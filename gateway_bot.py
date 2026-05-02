@@ -510,68 +510,39 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         key = (guild_id, user_id)
         
         if key in processing_speech:
-            logger.debug(f"process_speech skipped for {member.display_name}: already processing")
             return
             
         buffered = len(audio_buffers.get(key, []))
         if key not in audio_buffers or not audio_buffers[key]:
-            logger.debug(f"process_speech skipped for {member.display_name}: no buffered audio")
             return
-        
-        # Don't update the last speech timestamp here: we need the last-known
-        # speech from the channel BEFORE the current segment finished.
-        current_time = time.time()
             
         processing_speech.add(key)
-        logger.info(f"🎙️ process_speech START for {member.display_name} with {buffered} buffered packets")
         
         try:
-            # Get audio chunks
             chunks = audio_buffers[key]
-            
-            if len(chunks) < MIN_AUDIO_BUFFER_PACKETS:  # Need a minimum number of packets for meaningful speech
-                logger.warning(
-                    f"Skipping audio from {member.display_name}: only {len(chunks)} packets buffered "
-                    f"(need at least {MIN_AUDIO_BUFFER_PACKETS})"
-                )
-                # Keep the buffer intact so more audio can accumulate later.
+            if len(chunks) < MIN_AUDIO_BUFFER_PACKETS:
                 return
 
-            audio_buffers[key] = []  # Clear buffer only once enough data exists
-
-            # Combine audio (PCM is 48kHz 16-bit stereo)
+            audio_buffers[key] = [] 
             audio_bytes = b''.join(chunks)
-            del chunks  # Free chunk list immediately after combining
+            del chunks  
             
-            logger.info(f"Processing {len(audio_bytes)} bytes of audio from {member.display_name}")
-            
-            # Transcribe
             text = await self.transcribe_audio(audio_bytes)
-            del audio_bytes  # Free audio data immediately after transcription
+            del audio_bytes  
             
             if text and len(text.strip()) > 0:
                 logger.info(f"Transcribed from {member.display_name}: {text}")
-                
-                # Add to conversation context
                 add_to_context(guild_id, member.display_name, text)
                 
-                # Check if the bot is being addressed
                 is_addressed = is_addressing_bot(text, self.client.user.id)
-                logger.info(f"Bot addressing check: text='{text}', is_addressed={is_addressed}, bot_id={self.client.user.id}")
-                
-                # Random chance to reply even when not addressed
                 random_reply = random.random() < RANDOM_REPLY_PROBABILITY
                 
-                if is_addressed:
-                    logger.info(f"Bot detected it's being addressed - responding to {member.display_name}")
-                    await self.respond_to_speech(text, member.display_name, guild_id, context_aware=True)
-                elif random_reply:
-                    logger.info(f"Bot randomly chiming in to conversation (20% chance) - responding to {member.display_name}")
-                    await self.respond_to_speech(text, member.display_name, guild_id, context_aware=True)
-                else:
-                    logger.info(f"Bot not addressed - ignoring speech from {member.display_name}")
+                if is_addressed or random_reply:
+                    logger.info(f"Bot chiming in - responding to {member.display_name}")
+                    # ✅ FIXED: Now passing user_id
+                    await self.respond_to_speech(text, member.display_name, user_id, guild_id, context_aware=True)
             else:
-                logger.info(f"Transcription returned empty text for {member.display_name} - skipping response (bot only replies when directly addressed or by random chance)")
+                logger.info(f"Empty transcription for {member.display_name} - skipping")
                 
         except Exception as e:
             logger.error(f"Error processing speech: {e}", exc_info=True)
@@ -636,43 +607,33 @@ class VoiceListener(voice_recv.VoiceRecvClient):
             logger.warning(f"Transcription failed: {e}")
             return None
             
-    async def respond_to_speech(self, text: str, username: str, guild_id: int, context_aware: bool = False):
+    async def respond_to_speech(self, text: str, username: str, user_id: int, guild_id: int, context_aware: bool = False):
         """Send transcribed text to LLM and speak response."""
-        logger.info(f"respond_to_speech called with text='{text}', username='{username}', guild_id={guild_id}")
         try:
             payload = {
                 'content': text,
                 'username': username,
-                'user_id': str(guild_id),
+                'user_id': str(user_id),  # ✅ FIXED: Passing the actual user_id, not guild_id!
                 'guild_id': str(guild_id),
                 'channel_id': str(self.channel.id)
             }
             
-            # Add conversation context if enabled
             if context_aware:
                 context = get_context_summary(guild_id)
                 if context:
                     payload['context'] = context
-                    logger.info(f"Including conversation context: {len(context)} chars")
 
-            logger.info(f"Calling LLM endpoint {LLM_REPLY_ENDPOINT} with payload: {payload}")
             async with aiohttp.ClientSession() as session:
                 async with session.post(LLM_REPLY_ENDPOINT, json=payload, timeout=10) as resp:
-                    logger.info(f"LLM endpoint response status: {resp.status}")
                     if resp.status == 200:
                         data = await resp.json()
                         reply = data.get('reply', '')
-                        logger.info(f"LLM reply: '{reply[:100]}...'")
-                        
                         if reply:
-                            logger.info(f"Speaking reply: {reply[:100]}")
-                            # Speak immediately without delay
                             await tts_play(self, reply)
                         else:
                             logger.warning("LLM returned empty reply")
                     else:
-                        response_text = await resp.text()
-                        logger.warning(f"LLM endpoint returned {resp.status}: {response_text}")
+                        logger.warning(f"LLM endpoint returned {resp.status}")
                         
         except Exception as e:
             logger.error(f"Error responding to speech: {e}", exc_info=True)
