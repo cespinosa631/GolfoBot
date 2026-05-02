@@ -36,24 +36,20 @@ import audioop
 
 load_dotenv()
 
-WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
-_whisper_model = None
-_whisper_model_lock = threading.Lock()
+# Google Cloud Speech-to-Text initialization
+_google_speech_client = None
+_google_speech_client_lock = threading.Lock()
 
 
-def get_whisper_model(model_name: str = None):
-    global _whisper_model
-    if model_name is None:
-        model_name = WHISPER_MODEL_NAME
-    if _whisper_model is None:
-        with _whisper_model_lock:
-            if _whisper_model is None:
-                import whisper
-
-                logger.info(f"Loading Whisper model '{model_name}' for speech transcription...")
-                _whisper_model = whisper.load_model(model_name)
-                logger.info(f"Whisper model '{model_name}' loaded successfully (device={_whisper_model.device})")
-    return _whisper_model
+def get_google_speech_client():
+    global _google_speech_client
+    if _google_speech_client is None:
+        with _google_speech_client_lock:
+            if _google_speech_client is None:
+                from google.cloud import speech
+                _google_speech_client = speech.SpeechClient()
+                logger.info("Google Cloud Speech-to-Text client initialized")
+    return _google_speech_client
 
 
 def normalize_discord_pcm_for_google(
@@ -278,8 +274,8 @@ QUIET_CHANNEL_TIMEOUT = 30  # Consider channel "quiet" if no speech for 30 secon
 VOICE_KEEPALIVE_INTERVAL = 30  # Send speaking state update every 30s to keep connection alive
 RECONNECT_GRACE_PERIOD = 3  # Ignore packets received within 3 seconds after reconnection
 MAX_AUDIO_BUFFER_PACKETS = 250  # Max packets to buffer per user (prevent memory overflow, ~10 seconds)
-MIN_AUDIO_SECONDS_FOR_WHISPER = 0.5  # Minimum audio length to send to Whisper
-MIN_AUDIO_BYTES_FOR_WHISPER = int(16000 * MIN_AUDIO_SECONDS_FOR_WHISPER * 2)
+MIN_AUDIO_SECONDS_FOR_TRANSCRIPTION = 0.5  # Minimum audio length to send to STT
+MIN_AUDIO_BYTES_FOR_TRANSCRIPTION = int(16000 * MIN_AUDIO_SECONDS_FOR_TRANSCRIPTION * 2)
 MIN_AUDIO_BUFFER_PACKETS = 5  # Minimum buffered packets before attempting transcription
 MAX_SHORT_AUDIO_TIMEOUT = 3.0  # Wait this long for more packets before dropping too-short speech
 WEBSOCKET_CLOSING_TIMEOUT = 60  # If WebSocket stuck in closing state for 60s, force reconnect
@@ -556,45 +552,46 @@ class VoiceListener(voice_recv.VoiceRecvClient):
         normalized_audio = normalize_discord_pcm_for_google(audio_bytes)
         logger.info(f"Audio normalized: {len(audio_bytes)} bytes -> {len(normalized_audio)} bytes (mono 16kHz)")
         
-        # Skip if audio is too short for Whisper (need at least 0.5 seconds)
+        # Skip if audio is too short for Google STT (need at least 0.5 seconds)
         min_bytes = int(16000 * 0.5 * 2)  # 16kHz * 0.5s * 2 bytes/sample
         if len(normalized_audio) < min_bytes:
-            logger.warning(f"Audio too short for Whisper: {len(normalized_audio)} bytes < {min_bytes} bytes (0.5s minimum)")
+            logger.warning(f"Audio too short for transcription: {len(normalized_audio)} bytes < {min_bytes} bytes (0.5s minimum)")
             return None
-            
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-            wav_path = wav_file.name
-
-            with wave.open(wav_path, 'wb') as wf:
-                wf.setnchannels(1)  # Mono for Whisper
-                wf.setsampwidth(2)  # 16-bit
-                wf.setframerate(16000)  # 16kHz
-                wf.writeframes(normalized_audio)
-        logger.info("Audio normalized to mono 16kHz for Whisper transcription")
 
         try:
-            logger.info(f"Processing {len(audio_bytes)} bytes audio with Whisper")
-            model = get_whisper_model()
-            logger.info(f"Whisper model ready: {model.__class__.__name__} on device {model.device}")
-            result = model.transcribe(wav_path, task="transcribe", language=None, fp16=False)
-            logger.info(f"Whisper raw result keys: {list(result.keys())}")
-            text = result.get("text", "").strip()
-
+            logger.info(f"Processing {len(audio_bytes)} bytes audio with Google Cloud Speech-to-Text")
+            client = get_google_speech_client()
+            
+            from google.cloud.speech import RecognitionConfig, RecognitionAudio
+            
+            config = RecognitionConfig(
+                encoding=RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code="es-ES",  # Spanish (Spain)
+                audio_channel_count=1,
+            )
+            audio = RecognitionAudio(content=normalized_audio)
+            
+            response = client.recognize(config=config, audio=audio)
+            logger.info(f"Google STT response: {len(response.results)} results")
+            
+            text = ""
+            for result in response.results:
+                if result.alternatives:
+                    text += result.alternatives[0].transcript
+            
+            text = text.strip()
             if text:
-                logger.info(f"✅ Whisper transcribed: {text}")
+                logger.info(f"✅ Google STT transcribed: {text}")
                 return text
             else:
-                logger.warning(f"Whisper transcription returned empty text; segments={len(result.get('segments', []))}")
-                logger.debug(f"Whisper result object: {result}")
+                logger.warning(f"Google STT transcription returned empty text")
                 return None
         except Exception as e:
-            logger.error(f"Whisper transcription error: {e}")
+            logger.error(f"Google STT transcription error: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return None
-        finally:
-            try:
-                os.remove(wav_path)
-            except:
-                pass
     
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """Transcribe audio to text (runs in executor to avoid blocking)."""
@@ -728,7 +725,7 @@ async def start_voice_listening(vc):
                         chunks = audio_buffers[key]
                         if len(chunks) >= 1:  # Process any buffered audio before DAVE clears it
                             audio_bytes = b''.join(chunks)
-                            if len(audio_bytes) < MIN_AUDIO_BYTES_FOR_WHISPER:
+                            if len(audio_bytes) < MIN_AUDIO_BYTES_FOR_TRANSCRIPTION:
                                 logger.warning(
                                     f"🚨 DAVE re-keying with too-short buffer: {len(chunks)} packets, {len(audio_bytes)} bytes. "
                                     "Preserving until more audio arrives."
@@ -754,7 +751,7 @@ async def start_voice_listening(vc):
 
                                 if member:
                                     text = self.vc_instance._transcribe_audio_sync(audio_bytes)
-                                    logger.info(f"Emergency Whisper result for {member.display_name}: {text}")
+                                    logger.info(f"Emergency transcription result for {member.display_name}: {text}")
 
                                     if text and len(text.strip()) > 0:
                                         logger.info(f"Emergency transcribed from {member.display_name}: {text}")
